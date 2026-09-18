@@ -19,13 +19,21 @@ export function isTrivialPrompt(prompt: string): boolean {
   // short + low intent
   if (s.length < 60 && s.split(/\s+/).length < 8) {
     // allow high-signal keywords to bypass trivial shortcut
-    if (/(refactor|migrate|implement|audit|deploy|delete|remove|rewrite|design|plan|architect)/i.test(s)) return false;
+    if (
+      /(refactor|migrate|implement|audit|deploy|delete|remove|rewrite|design|plan|architect)/i.test(
+        s,
+      )
+    )
+      return false;
     if (/^(read|list|show|cat|ls|hi|hello|help|status|\?|thanks)\b/i.test(lower)) return true;
     // very short casual messages
     if (s.length < 40) return true;
   }
   // read-only patterns that are clearly not write tasks
-  if (/^(read|list|show|cat|ls|help)\b/i.test(lower) && !/(write|edit|delete|deploy|migrate|refactor|implement|fix)/i.test(lower)) {
+  if (
+    /^(read|list|show|cat|ls|help)\b/i.test(lower) &&
+    !/(write|edit|delete|deploy|migrate|refactor|implement|fix)/i.test(lower)
+  ) {
     // if just reading one file
     if (s.length < 200) return true;
   }

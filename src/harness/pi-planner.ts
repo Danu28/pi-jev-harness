@@ -4,8 +4,19 @@
  */
 import type { Via } from "../types.ts";
 
-export const PLAN_ACTIONS = ["read","bash","edit","write","ask-human","smart_read","smart_bundle","smart_edit","fetch","cext_batch"] as const;
-export type PlanAction = typeof PLAN_ACTIONS[number];
+export const PLAN_ACTIONS = [
+  "read",
+  "bash",
+  "edit",
+  "write",
+  "ask-human",
+  "smart_read",
+  "smart_bundle",
+  "smart_edit",
+  "fetch",
+  "cext_batch",
+] as const;
+export type PlanAction = (typeof PLAN_ACTIONS)[number];
 
 export const jevPlanSchema = {
   type: "object",
@@ -80,11 +91,11 @@ export interface PlanDecision {
 
 // Tool family mapping for gate (smart_bundle covers read/edit/write families)
 export const TOOL_FAMILY: Record<string, string[]> = {
-  smart_bundle: ["read","edit","write","bash"],
+  smart_bundle: ["read", "edit", "write", "bash"],
   smart_read: ["read"],
   smart_edit: ["edit"],
   smart_write: ["write"],
-  cext_batch: ["read","edit","write","bash"],
+  cext_batch: ["read", "edit", "write", "bash"],
   fetch: ["read"],
 };
 
@@ -190,9 +201,12 @@ export function formatPlanNotify(decision: PlanDecision): string {
 
 export function formatNextStep(decision: PlanDecision): string {
   const idx = decision.cursor ?? 0;
-  if (idx >= decision.steps.length) return `✅ Jev plan complete — ${decision.steps.length}/${decision.steps.length} done. Next: jev_git commit`;
+  if (idx >= decision.steps.length)
+    return `✅ Jev plan complete — ${decision.steps.length}/${decision.steps.length} done. Next: jev_git commit`;
   const s = decision.steps[idx];
   const deps = s.dependsOn?.length ? ` depends on ${s.dependsOn.join(",")}` : "";
-  const done = decision.done.length ? ` (${decision.done.length}/${decision.steps.length} done)` : "";
+  const done = decision.done.length
+    ? ` (${decision.done.length}/${decision.steps.length} done)`
+    : "";
   return `➡️ Next: ${actionLabel(s.action)} ${s.id} — ${s.title}  risk ${s.risk.toFixed(2)}${s.needsHuman ? " needsHuman" : ""}${deps}${done}\n   Run: ${s.action}  ·  /jev:next for details  ·  /jev:status for card`;
 }

@@ -41,7 +41,12 @@ export function evaluateGate(
   state: GateState,
   toolName: string,
 ): GateResult {
-  if (toolName === "jev_calibrate" || toolName === "jev_plan" || toolName === "jev_git" || toolName.startsWith("jev_git_")) {
+  if (
+    toolName === "jev_calibrate" ||
+    toolName === "jev_plan" ||
+    toolName === "jev_git" ||
+    toolName.startsWith("jev_git_")
+  ) {
     return { block: false, pRisk: 0, via: "pi-model" };
   }
   if (!state.policy) {
@@ -73,7 +78,13 @@ export function evaluateGate(
     !state.plan &&
     state.pendingPlanState
   ) {
-    if (toolName === "bash" || toolName === "write" || toolName === "edit" || toolName === "smart_bundle" || toolName === "smart_edit") {
+    if (
+      toolName === "bash" ||
+      toolName === "write" ||
+      toolName === "edit" ||
+      toolName === "smart_bundle" ||
+      toolName === "smart_edit"
+    ) {
       return {
         block: true,
         reason: "Jev plan pending — pi model must call jev_plan first (System-Two via pi-model).",
@@ -112,7 +123,7 @@ export function evaluateGate(
       // dependsOn check — warn if dependencies not done (cursor-based)
       if (found.dependsOn?.length) {
         const doneIds = new Set(state.plan.done ?? []);
-        const notDone = found.dependsOn.filter(d => !doneIds.has(d));
+        const notDone = found.dependsOn.filter((d) => !doneIds.has(d));
         if (notDone.length) {
           warning = `s:${found.id} depends on ${notDone.join(",")} not yet done — consider running those first`;
           // do not block, just warn (enforce order gently)
@@ -121,12 +132,19 @@ export function evaluateGate(
     } else {
       // tool not in plan but plan exists — check if any step with same family warns about skipping ahead
       const cursorStep = state.plan.steps[state.plan.cursor ?? 0];
-      if (cursorStep && cursorStep.action !== toolName && !matchesAction(cursorStep.action, toolName)) {
+      if (
+        cursorStep &&
+        cursorStep.action !== toolName &&
+        !matchesAction(cursorStep.action, toolName)
+      ) {
         // gentle nudge, not block
-        const pending = state.plan.steps.slice(state.plan.cursor ?? 0).map(s=>s.id).join(",");
+        const pending = state.plan.steps
+          .slice(state.plan.cursor ?? 0)
+          .map((s) => s.id)
+          .join(",");
         if (state.plan.cursor !== undefined && state.plan.cursor < state.plan.steps.length) {
           // only warn for write/edit/bash skew
-          if (["bash","write","edit","smart_bundle","smart_edit"].includes(toolName)) {
+          if (["bash", "write", "edit", "smart_bundle", "smart_edit"].includes(toolName)) {
             warning = `out-of-order: next planned is ${cursorStep.id} (${cursorStep.action}), pending [${pending}]`;
           }
         }
@@ -134,13 +152,23 @@ export function evaluateGate(
     }
   }
   // Also detect any needsHuman step matching this tool even if not primary found
-  const needsHumanStep = state.plan?.steps.find(s => s.needsHuman && matchesAction(s.action, toolName));
-  const block =
-    pRisk >= config.thresholds.risk ||
-    !!needsHumanStep;
+  const needsHumanStep = state.plan?.steps.find(
+    (s) => s.needsHuman && matchesAction(s.action, toolName),
+  );
+  const block = pRisk >= config.thresholds.risk || !!needsHumanStep;
   if (block && !code) {
     code = pRisk >= config.thresholds.risk ? "RISK_HIGH" : "NEEDS_HUMAN";
     hint = hint ?? "Lower is_risky or confirm. Use /jev:status for card.";
   }
-  return { block, reason, pRisk, via, step, code, hint, retryable: block ? true : undefined, warning };
+  return {
+    block,
+    reason,
+    pRisk,
+    via,
+    step,
+    code,
+    hint,
+    retryable: block ? true : undefined,
+    warning,
+  };
 }

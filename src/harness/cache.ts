@@ -3,7 +3,11 @@
  */
 import { simpleHash, normalizeState } from "../jev-client.ts";
 
-export interface CacheStats { hits: number; misses: number; sets: number; }
+export interface CacheStats {
+  hits: number;
+  misses: number;
+  sets: number;
+}
 
 export class JevCache {
   private m = new Map<string, { v: unknown; exp: number }>();
@@ -27,11 +31,16 @@ export class JevCache {
     return `h:${simpleHash(truncated)}:${truncated.slice(0, 80)}`;
   }
   // Public helper for external key computation (e.g., persistent layer)
-  hashKey(s: string): string { return this.key(s); }
+  hashKey(s: string): string {
+    return this.key(s);
+  }
   get<T>(k: string): T | undefined {
     const hashed = this.key(k);
     const e = this.m.get(hashed);
-    if (!e) { this.stats.misses++; return undefined; }
+    if (!e) {
+      this.stats.misses++;
+      return undefined;
+    }
     if (Date.now() > e.exp) {
       this.m.delete(hashed);
       this.stats.misses++;
@@ -76,7 +85,7 @@ export class JevCache {
       // extract original truncated prefix from hash key format h:hash:prefix
       const prefix = hk.startsWith("h:") ? hk.slice(10) : hk;
       const candTokens = new Set(prefix.toLowerCase().split(/\s+/).filter(Boolean));
-      const inter = [...tokens].filter(t => candTokens.has(t)).length;
+      const inter = [...tokens].filter((t) => candTokens.has(t)).length;
       const overlap = inter / Math.max(tokens.size, candTokens.size);
       if (overlap >= threshold) {
         this.stats.hits++;

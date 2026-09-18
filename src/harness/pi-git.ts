@@ -108,15 +108,17 @@ export function formatStatus(branch: string, porcelain: string): string {
   const pretty = lines.map((l) => {
     const code = l.slice(0, 2);
     const file = l.slice(3);
-    const icon = noEmoji ? ` ${code.trim() || "??"}` : code.includes("M")
-      ? "\u270F\uFE0F"
-      : code.includes("A")
-        ? "\u2795"
-        : code.includes("D")
-          ? "\uD83D\uDDD1\uFE0F"
-          : code.includes("??")
-            ? "\u2753"
-            : "\u2022";
+    const icon = noEmoji
+      ? ` ${code.trim() || "??"}`
+      : code.includes("M")
+        ? "\u270F\uFE0F"
+        : code.includes("A")
+          ? "\u2795"
+          : code.includes("D")
+            ? "\uD83D\uDDD1\uFE0F"
+            : code.includes("??")
+              ? "\u2753"
+              : "\u2022";
     return `  ${icon} ${code} ${file}`;
   });
   return `${tree} Git Status  \u00B7  ${branch || "detached"}  \u00B7  ${lines.length} changed\n${divider()}\n${pretty.join("\n")}`;
@@ -215,7 +217,10 @@ export async function handleJevGit(
     const { code, stdout } = await execGit(pi, ["status", "--porcelain", "--branch"]);
     if (code === 0 && stdout.includes("##")) {
       const parsed = parsePorcelainBranch(stdout);
-      return { text: formatStatus(parsed.branch, parsed.porcelain), details: { branch: parsed.branch, porcelain: parsed.porcelain } };
+      return {
+        text: formatStatus(parsed.branch, parsed.porcelain),
+        details: { branch: parsed.branch, porcelain: parsed.porcelain },
+      };
     }
     // fallback (legacy git)
     const [{ stdout: branchRaw }, { stdout: por }] = await Promise.all([

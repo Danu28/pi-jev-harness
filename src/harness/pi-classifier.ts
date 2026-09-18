@@ -19,22 +19,39 @@ export const jevCalibrateSchema = {
     confidence: { type: "number", minimum: 0, maximum: 1 },
     plan: {
       type: "object",
-      description: "Optional: if needs_plan>=0.5 include 2-7 steps now to save 1 LLM turn (merged calibrate+plan)",
+      description:
+        "Optional: if needs_plan>=0.5 include 2-7 steps now to save 1 LLM turn (merged calibrate+plan)",
       properties: {
         steps: {
-          type: "array", minItems: 2, maxItems: 7,
+          type: "array",
+          minItems: 2,
+          maxItems: 7,
           items: {
             type: "object",
             properties: {
               id: { type: "string" },
               title: { type: "string" },
-              action: { type: "string", enum: ["read","bash","edit","write","ask-human","smart_read","smart_bundle","smart_edit","fetch","cext_batch"] },
+              action: {
+                type: "string",
+                enum: [
+                  "read",
+                  "bash",
+                  "edit",
+                  "write",
+                  "ask-human",
+                  "smart_read",
+                  "smart_bundle",
+                  "smart_edit",
+                  "fetch",
+                  "cext_batch",
+                ],
+              },
               risk: { type: "number", minimum: 0, maximum: 1 },
               needsHuman: { type: "boolean" },
               dependsOn: { type: "array", items: { type: "string" } },
             },
-            required: ["id","title","action","risk"],
-          }
+            required: ["id", "title", "action", "risk"],
+          },
         },
         reasoning: { type: "string" },
         confidence: { type: "number", minimum: 0, maximum: 1 },
@@ -98,7 +115,10 @@ export function calibrateToRisk(
   };
 }
 
-export function buildJevInstruction(state: string, opts?: { short?: boolean; compressedChars?: number }): string {
+export function buildJevInstruction(
+  state: string,
+  opts?: { short?: boolean; compressedChars?: number },
+): string {
   const compressed = compressState(state, opts?.compressedChars ?? 1200);
   if (opts?.short || shouldUseShortInstruction(compressed, false)) {
     return `[JEV calibration required — call jev_calibrate tool now] STATE: ${compressed.slice(0, 1200)} Evaluate 5 parallel Questions: complexity_score+level (low/med/high), is_urgent, needs_plan, needs_human, is_risky 0-1 + confidence. Call jev_calibrate (8 fields). Tip: if needs_plan≥0.5 include plan.steps in SAME call to save 1 turn.`;
