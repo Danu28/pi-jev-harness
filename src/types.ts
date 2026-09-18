@@ -60,10 +60,11 @@ export const defaultConfig: HarnessConfig = {
   timeoutMs: 3_000,
 };
 
+export type Via = "jev" | "rules" | "pi-model";
 export interface PolicyDecision {
-  complexity: { level: "low" | "medium" | "high"; score: number; confidence: number; via: "jev" | "rules" };
-  isUrgent: { p: number; confidence: number; via: "jev" | "rules" };
-  needsPlan: { p: number; confidence: number; via: "jev" | "rules" };
-  needsHuman: { p: number; confidence: number; via: "jev" | "rules" };
+  complexity: { level: "low" | "medium" | "high"; score: number; confidence: number; via: Via };
+  isUrgent: { p: number; confidence: number; via: Via };
+  needsPlan: { p: number; confidence: number; via: Via };
+  needsHuman: { p: number; confidence: number; via: Via };
   latencyMs: number;
 }
