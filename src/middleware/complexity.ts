@@ -9,7 +9,9 @@ export interface ComplexityDecision { level: "low" | "medium" | "high"; score: n
 
 export async function scoreComplexity(client: JevClient, config: HarnessConfig, state: string): Promise<ComplexityDecision> {
   const ruleScore = (): ComplexityDecision => {
-    const s = Math.min(1, state.length / 6000 + (/\b(and|then|after|refactor|migrate|architect)\b/gi.exec(state)?.length ?? 0) * 0.12);
+    const heavy = /(audit|refactor\w*|reorg|migrate\w*|architect\w*|security|cleanup|tidy\w*|inconsist|duplicat|cross.?cut|safer)/i.test(state);
+    const kw = (state.match(/\b(and|then|after|audit|refactor\w*|reorg|migrate\w*|architect\w*|security|cleanup|tidy\w*|branch|workflow|inconsist|duplicat|safer)\b/gi) ?? []).length;
+    const s = Math.min(1, state.length / 4000 + kw * 0.14 + (heavy ? 0.48 : 0));
     const level = s > 0.66 ? "high" : s > 0.33 ? "medium" : "low";
     return { level, score: s, confidence: 0.55, needsPlan: s >= config.thresholds.complexity, latencyMs: 0, via: "rules" };
   };

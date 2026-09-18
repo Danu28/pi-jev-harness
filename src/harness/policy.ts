@@ -14,8 +14,10 @@ export async function evaluatePolicy(
   const t0 = Date.now();
   const rulesFallback = (): PolicyDecision => {
     const len = state.length;
-    const kw = (state.match(/\b(and|then|after|refactor|migrate|architect|security|urgent|asap|human|confirm)\b/gi) ?? []).length;
-    const score = Math.min(1, len / 6000 + kw * 0.08);
+    // heavy Jev concepts that alone warrant a plan — catches audit/refactoring typo variants too
+    const heavy = /(audit|refactor\w*|reorg|migrate\w*|architect\w*|security|cleanup|tidy\w*|inconsist|duplicat|cross.?cut|safer)/i.test(state);
+    const kw = (state.match(/\b(and|then|after|audit|refactor\w*|reorg|migrate\w*|architect\w*|security|cleanup|tidy\w*|branch|workflow|inconsist|duplicat|safer)\b/gi) ?? []).length;
+    const score = Math.min(1, len / 4000 + kw * 0.14 + (heavy ? 0.48 : 0));
     const level = score > 0.66 ? "high" : score > 0.33 ? "medium" : "low";
     const isUrgent = /\b(urgent|asap|p0|blocking|customers seeing|500s|failing)\b/i.test(state);
     const needsHuman = /\b(destructive|secrets|prod|deploy|payment)\b/i.test(state);
