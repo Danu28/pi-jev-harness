@@ -76,6 +76,30 @@ export default function (pi: ExtensionAPI): void {
 
   function cardStatus(): string { return buildCardStatus(uiState()); }
 
+  const toolDeps: import("./extension/tools.ts").ToolDeps = {
+    pi: pi as unknown,
+    config,
+    cache,
+    get: () => ({ policy: lastPolicy, risk: lastRisk, plan: lastPlan, git: lastGit, pendingState, pendingPlanState, t0, tPlan0, turnId, lastCalibrateTurn, lastPlanTurn, hadGitCommitThisTurn, telemetry: lastTelemetry, lastWasLowRisk }),
+    set: (patch) => {
+      if (patch.policy !== undefined) lastPolicy = patch.policy as PolicyDecision | null;
+      if (patch.risk !== undefined) lastRisk = patch.risk as { decision: RiskDecision } | null;
+      if (patch.plan !== undefined) lastPlan = patch.plan as PlanDecision | null;
+      if (patch.git !== undefined) lastGit = patch.git as { hash?: string; action?: string } | null;
+      if (patch.pendingState !== undefined) pendingState = patch.pendingState;
+      if (patch.pendingPlanState !== undefined) pendingPlanState = patch.pendingPlanState;
+      if (patch.t0 !== undefined) t0 = patch.t0;
+      if (patch.tPlan0 !== undefined) tPlan0 = patch.tPlan0;
+      if (patch.lastCalibrateTurn !== undefined) lastCalibrateTurn = patch.lastCalibrateTurn;
+      if (patch.lastPlanTurn !== undefined) lastPlanTurn = patch.lastPlanTurn;
+      if (patch.hadGitCommitThisTurn !== undefined) hadGitCommitThisTurn = patch.hadGitCommitThisTurn;
+      if (patch.telemetry !== undefined) lastTelemetry = patch.telemetry;
+      if (patch.lastWasLowRisk !== undefined) lastWasLowRisk = patch.lastWasLowRisk;
+    },
+    append,
+    nextHint: nextActionHint,
+  };
+
   // ── tools ──────────────────────────────────────────────────────────────
   (pi as any).registerTool({
     name: "jev_calibrate",
@@ -83,97 +107,7 @@ export default function (pi: ExtensionAPI): void {
     description:
       "System-One Jev calibration: evaluate 5 parallel Questions (complexity Score + is_urgent/needs_plan/needs_human/is_risky Noul) for STATE. Call this BEFORE any other tool. Do NOT merge plan — call jev_plan separately next if needs_plan>=0.5 (once per task).",
     parameters: jevCalibrateSchema as unknown as Record<string, unknown>,
-    async execute(_toolCallId: string, params: unknown) {
-      const p = params as JevCalibrateParams;
-      // once-per-task guard: calibration already done this task — separate calls, do not re-calibrate
-      if (lastCalibrateTurn === turnId && lastPolicy) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `blocked: jev_calibrate already called this task (turn ${turnId}) — proceed to jev_plan if needsPlan>=0.5, do not merge/re-call`,
-            },
-          ],
-          details: {
-            error: "already calibrated this task",
-            code: "ALREADY_CALIBRATED",
-            hint: "Calibration is once per task. Call jev_plan next if needed, do not re-call jev_calibrate.",
-            retryable: false,
-            nextAction: lastPolicy.needsPlan.p >= 0.5 ? "call jev_plan" : "proceed",
-          },
-        };
-      }
-      // reject merged payload if sent — enforce separation
-      if ((p as unknown as { plan?: unknown }).plan) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "blocked: merged calibrate+plan not allowed — call jev_calibrate (8 fields only) then jev_plan separately (once per task)",
-            },
-          ],
-          details: {
-            error: "merged not allowed",
-            code: "MERGED_NOT_ALLOWED",
-            hint: "Call jev_calibrate without plan, then call jev_plan separately.",
-            retryable: true,
-            nextAction: "call jev_calibrate without plan",
-          },
-        };
-      }
-      const latencyMs = Date.now() - t0;
-      const policy = calibrateToPolicy(p, latencyMs);
-      const risk = calibrateToRisk(p, config);
-      lastPolicy = policy;
-      lastRisk = { decision: risk };
-      lastWasLowRisk = risk.pRisk < 0.4;
-      lastCalibrateTurn = turnId;
-      const cacheKey = `policy:${p.state.slice(0, 2000)}`;
-      cache.set(cacheKey, policy);
-      const needsPlan = policy.needsPlan.p >= 0.5 && policy.complexity.level !== "low";
-      if (needsPlan) {
-        pendingPlanState = p.state;
-        tPlan0 = Date.now();
-      } else {
-        pendingPlanState = null;
-      }
-      // telemetry — keep only needed
-      lastTelemetry = {
-        compressedChars: compressState(p.state).length,
-        latencyMs,
-        cached: false,
-        trivialBypass: false,
-      };
-      append({
-        type: "policy",
-        policy,
-        calibration: p,
-        at: Date.now(),
-        provider: process.env.PI_PROVIDER,
-        model: process.env.PI_MODEL,
-        telemetry: lastTelemetry,
-      });
-      const base = `calibrated via:pi-model complexity=${policy.complexity.level} score=${policy.complexity.score.toFixed(2)} urgent=${policy.isUrgent.p.toFixed(2)} needsPlan=${policy.needsPlan.p.toFixed(2)} risk=${risk.pRisk.toFixed(2)}`;
-      const needsPlanNow = policy.needsPlan.p >= 0.5 && policy.complexity.level !== "low";
-      const suffix = needsPlanNow
-        ? "\n[JEV plan required next — call jev_plan for this STATE now (separate, once per task)]"
-        : "";
-      const nextAct = needsPlanNow ? "call jev_plan" : "proceed";
-      return {
-        content: [{ type: "text", text: base + suffix }],
-        details: {
-          policy,
-          risk,
-          needsPlan: policy.needsPlan.p >= 0.5,
-          plan: null,
-          nextAction: nextAct,
-          telemetry: lastTelemetry,
-          hint: needsPlanNow
-            ? "Call jev_plan next (separate call, once per task)"
-            : `Next: ${nextAct}`,
-        },
-      };
-    },
+    execute: jevCalibrateExecute(toolDeps) as unknown as (id: string, params: unknown) => Promise<unknown>,
   });
 
   (pi as any).registerTool({
@@ -182,67 +116,7 @@ export default function (pi: ExtensionAPI): void {
     description:
       "System-Two Jev plan: decompose STATE into 2-7 sequential steps with per-step risk/needsHuman. Call AFTER jev_calibrate when needs_plan>=0.5 (separate, once per task, never merged). Prefer smart_bundle for ≤8 files.",
     parameters: jevPlanSchema as unknown as Record<string, unknown>,
-    async execute(_toolCallId: string, params: unknown) {
-      const p = params as JevPlanParams;
-      if (!lastPolicy)
-        return {
-          content: [
-            {
-              type: "text",
-              text: "blocked: must call jev_calibrate before jev_plan (separate calls, once per task)",
-            },
-          ],
-          details: {
-            error: "calibrate first",
-            code: "CALIBRATE_FIRST",
-            hint: "Call jev_calibrate first (separate, once per task), then jev_plan",
-            retryable: true,
-            nextAction: "call jev_calibrate",
-          },
-        };
-      if (lastPlanTurn === turnId && lastPlan) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `blocked: jev_plan already called this task (turn ${turnId}) — once per task, proceed to execution`,
-            },
-          ],
-          details: {
-            error: "already planned this task",
-            code: "ALREADY_PLANNED",
-            hint: "Plan is once per task. Proceed with plan steps, do not re-call jev_plan.",
-            retryable: false,
-            nextAction: `run ${lastPlan.steps[lastPlan.cursor ?? 0]?.action ?? "read"}`,
-          },
-        };
-      }
-      const latencyMs = Date.now() - (tPlan0 || t0);
-      const decision = planToDecision(p, latencyMs);
-      lastPlan = decision;
-      lastPlanTurn = turnId;
-      pendingPlanState = null;
-      cache.set(`plan:${p.state.slice(0, 2000)}`, decision);
-      append({
-        type: "plan",
-        plan: decision,
-        params: p,
-        at: Date.now(),
-        provider: process.env.PI_PROVIDER,
-        model: process.env.PI_MODEL,
-      });
-      const pretty = formatPlanDisplay(p, decision);
-      const next = formatNextStep(decision);
-      return {
-        content: [{ type: "text", text: pretty + "\n" + next }],
-        details: {
-          plan: decision,
-          nextAction: `run ${decision.steps[0]?.action ?? "read"}`,
-          cursor: 0,
-          hint: next,
-        },
-      };
-    },
+    execute: jevPlanExecute(toolDeps) as unknown as (id: string, params: unknown) => Promise<unknown>,
   });
 
   (pi as any).registerTool({
@@ -251,41 +125,7 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Agent-friendly git for Jev harness — status/diff/log/commit/revert/init. Commit auto-generates conventional message from Jev calibration/plan if message omitted.",
     parameters: jevGitSchema as unknown as Record<string, unknown>,
-    async execute(_toolCallId: string, params: unknown) {
-      const p = params as JevGitParams;
-      const res = await handleJevGit(
-        pi as unknown as {
-          exec?: (
-            cmd: string,
-            args: string[],
-          ) => Promise<{ code?: number; stdout?: string; stderr?: string }>;
-        },
-        p,
-        { policy: lastPolicy, plan: lastPlan, state: pendingPlanState ?? pendingState },
-      );
-      if (p.action === "commit" && !res.details?.error && !res.details?.clean) {
-        hadGitCommitThisTurn = true;
-        lastGit = res.details as { hash?: string };
-        // advance cursor if commit was planned last step
-        if (lastPlan && lastPlan.cursor < lastPlan.steps.length) {
-          const lastStep = lastPlan.steps[lastPlan.steps.length - 1];
-          if (lastStep.action === "write" || (lastPlan.steps[0] as any)) {
-            lastPlan.cursor = lastPlan.steps.length;
-          }
-        }
-      }
-      append({
-        type: "git",
-        action: p.action,
-        params: p,
-        result: res.details,
-        at: Date.now(),
-      });
-      return {
-        content: [{ type: "text", text: res.text }],
-        details: { ...res.details, nextAction: nextActionHint() },
-      };
-    },
+    execute: jevGitExecute(toolDeps) as unknown as (id: string, params: unknown) => Promise<unknown>,
   });
 
   // git wrappers removed — use jev_git {action:"status"|"commit"|"diff"|"log"} (single tool, same impl)
