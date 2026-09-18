@@ -18,7 +18,16 @@ export const jevCalibrateSchema = {
     is_risky: { type: "number", minimum: 0, maximum: 1 },
     confidence: { type: "number", minimum: 0, maximum: 1 },
   },
-  required: ["state", "complexity_score", "complexity_level", "is_urgent", "needs_plan", "needs_human", "is_risky", "confidence"],
+  required: [
+    "state",
+    "complexity_score",
+    "complexity_level",
+    "is_urgent",
+    "needs_plan",
+    "needs_human",
+    "is_risky",
+    "confidence",
+  ],
 } as const;
 
 export type JevCalibrateParams = {
@@ -35,7 +44,12 @@ export type JevCalibrateParams = {
 export function calibrateToPolicy(p: JevCalibrateParams, latencyMs: number): PolicyDecision {
   const via: Via = "pi-model";
   return {
-    complexity: { level: p.complexity_level, score: p.complexity_score, confidence: p.confidence, via },
+    complexity: {
+      level: p.complexity_level,
+      score: p.complexity_score,
+      confidence: p.confidence,
+      via,
+    },
     isUrgent: { p: p.is_urgent, confidence: p.confidence, via },
     needsPlan: { p: p.needs_plan, confidence: p.confidence, via },
     needsHuman: { p: p.needs_human, confidence: p.confidence, via },
@@ -43,14 +57,20 @@ export function calibrateToPolicy(p: JevCalibrateParams, latencyMs: number): Pol
   };
 }
 
-export function calibrateToRisk(p: JevCalibrateParams, config: HarnessConfig): { block: boolean; pRisk: number; confidence: number; via: Via; reason?: string } {
+export function calibrateToRisk(
+  p: JevCalibrateParams,
+  config: HarnessConfig,
+): { block: boolean; pRisk: number; confidence: number; via: Via; reason?: string } {
   const pRisk = p.is_risky;
   return {
     block: pRisk >= config.thresholds.risk,
     pRisk,
     confidence: p.confidence,
     via: "pi-model",
-    reason: pRisk >= config.thresholds.risk ? `pi-model pRisk=${pRisk.toFixed(2)} >= ${config.thresholds.risk}` : undefined,
+    reason:
+      pRisk >= config.thresholds.risk
+        ? `pi-model pRisk=${pRisk.toFixed(2)} >= ${config.thresholds.risk}`
+        : undefined,
   };
 }
 

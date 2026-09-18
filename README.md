@@ -12,7 +12,7 @@ pi -e git:github.com/Danu28/pi-jev-harness
 pi install git:github.com/Danu28/pi-jev-harness
 
 # pin to tag
-pi install git:github.com/Danu28/pi-jev-harness@v0.3.0
+pi install git:github.com/Danu28/pi-jev-harness@v0.3.1
 
 # update
 pi update --extensions
@@ -48,8 +48,13 @@ LLM → /jev:log /jev:git status — audit & revert
 ## Dev
 
 ```bash
-pi -e ./src/index.ts          # quick test
-npx tsc --noEmit              # typecheck (zero deps)
+pi -e ./src/index.ts          # quick test (pi handles .ts directly)
+npm run typecheck             # tsc --noEmit
+npm test                      # vitest run  (33 tests)
+npm run lint                  # eslint flat config
+npx prettier --check src      # format check
 ```
+
+> **Note on `allowImportingTsExtensions`**: `tsconfig.json` sets this so `src/*.ts` can `import "./x.ts"`. Pi's TS loader handles `.ts` extensions natively; for bundlers that don't, strip the extension or set `rewriteRelativeImportExtensions`.
 
 Widget footer shows `jev:pi-model provider/model + plan:N + git:abc1234` — proves NOT regular.

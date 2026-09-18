@@ -9,7 +9,11 @@ export const jevPlanSchema = {
   type: "object",
   properties: {
     state: { type: "string", description: "STATE being planned" },
-    complexity_level: { type: "string", enum: ["low", "medium", "high"], description: "Inherit from calibration" },
+    complexity_level: {
+      type: "string",
+      enum: ["low", "medium", "high"],
+      description: "Inherit from calibration",
+    },
     steps: {
       type: "array",
       minItems: 2,
@@ -20,10 +24,18 @@ export const jevPlanSchema = {
         properties: {
           id: { type: "string", description: "s1,s2..." },
           title: { type: "string", description: "Short step goal" },
-          action: { type: "string", enum: ["read", "bash", "edit", "write", "ask-human"], description: "Primary tool for step" },
+          action: {
+            type: "string",
+            enum: ["read", "bash", "edit", "write", "ask-human"],
+            description: "Primary tool for step",
+          },
           risk: { type: "number", minimum: 0, maximum: 1, description: "Per-step is_risky Noul" },
           needsHuman: { type: "boolean", description: "Step needs human confirmation" },
-          dependsOn: { type: "array", items: { type: "string" }, description: "IDs this step depends on" },
+          dependsOn: {
+            type: "array",
+            items: { type: "string" },
+            description: "IDs this step depends on",
+          },
         },
         required: ["id", "title", "action", "risk"],
       },
@@ -76,12 +88,21 @@ export function planToDecision(p: JevPlanParams, latencyMs: number): PlanDecisio
   };
 }
 
-export function buildJevPlanInstruction(state: string, calibration: { complexity: { level: string; score: number }; needsPlan: { p: number } }): string {
+export function buildJevPlanInstruction(
+  state: string,
+  calibration: { complexity: { level: string; score: number }; needsPlan: { p: number } },
+): string {
   return `[JEV plan required — call jev_plan tool now]\nSTATE: ${state.slice(0, 4000)}\nCALIBRATION: complexity=${calibration.complexity.level} score=${calibration.complexity.score.toFixed(2)} needs_plan=${calibration.needsPlan.p.toFixed(2)} via=pi-model\nDecompose into 2-7 sequential steps (id:s1.. title, action:read/bash/edit/write/ask-human, risk 0-1 Noul per step, needsHuman, dependsOn). Order by execution. Last step should be git commit via jev_git (action=commit) with jev message. Call jev_plan with all fields + confidence. Do NOT run bash/write/edit before planning.`;
 }
 
-// ── UI formatting (user-friendly) ────────────────────────────────────────────
-const ACTION_ICON: Record<string, string> = { read: "🔍", bash: "⚙️", edit: "✏️", write: "📝", "ask-human": "👤" };
+// ── UI formatting ──────────────────────────────────────────────────────────
+const ACTION_ICON: Record<string, string> = {
+  read: "🔍",
+  bash: "⚙️",
+  edit: "✏️",
+  write: "📝",
+  "ask-human": "👤",
+};
 function riskBadge(risk: number): string {
   if (risk >= 0.85) return "🔴 high";
   if (risk >= 0.5) return "🟡 medium";
@@ -91,28 +112,30 @@ function riskBadge(risk: number): string {
 function actionLabel(a: string): string {
   return `${ACTION_ICON[a] ?? "•"} ${a}`;
 }
+function formatSteps(steps: JevPlanStep[], withDeps: boolean): string {
+  return steps
+    .map((s, i) => {
+      const n = String(i + 1).padStart(2, " ");
+      const deps =
+        withDeps && s.dependsOn?.length ? `  ↳ depends on ${s.dependsOn.join(", ")}` : "";
+      const human = s.needsHuman ? "  👤 needs human" : "";
+      return `${n}. ${actionLabel(s.action)}  ${s.id} — ${s.title}\n     risk ${s.risk.toFixed(2)} ${riskBadge(s.risk)}${human}${deps}`;
+    })
+    .join("\n");
+}
 
 export function formatPlanDisplay(p: JevPlanParams, decision: PlanDecision): string {
   const header = `📋 Jev Plan  ·  via pi-model  ·  ${p.steps.length} steps  ·  max risk ${decision.maxRisk.toFixed(2)} ${riskBadge(decision.maxRisk)}  ·  confidence ${(p.confidence * 100).toFixed(0)}%`;
   const divider = "─".repeat(52);
-  const lines = p.steps.map((s, i) => {
-    const n = String(i + 1).padStart(2, " ");
-    const deps = s.dependsOn?.length ? `  ↳ depends on ${s.dependsOn.join(", ")}` : "";
-    const human = s.needsHuman ? "  👤 needs human" : "";
-    return `${n}. ${actionLabel(s.action)}  ${s.id} — ${s.title}\n     risk ${s.risk.toFixed(2)} ${riskBadge(s.risk)}${human}${deps}`;
-  });
+  const lines = formatSteps(p.steps, true);
   const reasoning = p.reasoning ? `\n💡 ${p.reasoning}` : "";
-  return `${header}\n${divider}\n${lines.join("\n")}${reasoning}`;
+  return `${header}\n${divider}\n${lines}${reasoning}`;
 }
 
 export function formatPlanNotify(decision: PlanDecision): string {
-  const p: any = decision;
-  const header = `📋 Jev Plan  ·  ${p.steps.length} steps  ·  max risk ${p.maxRisk.toFixed(2)} ${riskBadge(p.maxRisk)}`;
+  const header = `📋 Jev Plan  ·  ${decision.steps.length} steps  ·  max risk ${decision.maxRisk.toFixed(2)} ${riskBadge(decision.maxRisk)}`;
   const divider = "─".repeat(44);
-  const lines = p.steps.map((s: any, i: number) => {
-    const n = String(i + 1).padStart(2, " ");
-    return `${n}. ${actionLabel(s.action)}  ${s.id} — ${s.title}\n     risk ${s.risk.toFixed(2)} ${riskBadge(s.risk)}${s.needsHuman ? "  👤 needs human" : ""}`;
-  });
-  const reasoning = p.reasoning ? `\n💡 ${p.reasoning}` : "";
-  return `${header}\n${divider}\n${lines.join("\n")}${reasoning}`;
+  const lines = formatSteps(decision.steps, false);
+  const reasoning = decision.reasoning ? `\n💡 ${decision.reasoning}` : "";
+  return `${header}\n${divider}\n${lines}${reasoning}`;
 }
