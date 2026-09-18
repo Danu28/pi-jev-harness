@@ -1,89 +1,68 @@
-# pi-jev-harness — Independent Jev Harness for Pi
+# pi-jev-harness — Pure Jev System-One Harness for Pi
 
-> System One + System Two for pi. Jev handles fast classification, LLM handles generation.
+> No model picking. No external deps. One Jev batch per turn, one Noul gate per tool.
 
-Inspired by [LangChain's Building a Harness with Jev](https://www.langchain.com/blog/building-a-harness-with-jev) and TypeSafe's [System One models](https://typesafe.ai/blog/introducing-system-one-models-and-jev).
+Pure port of [Building a Harness with Jev](https://www.langchain.com/blog/building-a-harness-with-jev) to `pi`: Jev handles **fast structured decisions**, LLM handles generation. Independent — `pi install ./Pi-Jev-Harness` or `pi -e ./src/index.ts`. Works offline (`rules` fallback), calibrates with `TYPESAFE_API_KEY`.
 
-**Independent** — no dependency on `pi-brain` or `pi-pilot`. Drop-in pi extension (`pi install` / `pi -e ./src/index.ts`). Falls back to rule-based gates when `TYPESAFE_API_KEY` is missing.
-
-## Architecture (3 layers)
+## Architecture — Complete Harness (no routing)
 
 ```
-User Prompt
+User prompt
    │
    ▼
-┌─────────────────────────────────────────────┐
-│  LAYER 1 — Core Jev Client (stateless)      │  src/jev-client.ts
-│  POST https://api.typesafe.ai/v1/classify   │  types: Noul | Choice | Score
-│  {state, questions:{}} -> {probs, conf}    │  parallel questions, calibrated
-└──────────────┬──────────────────────────────┘
+┌─────────────────────────────────────────┐
+│ Core: JevClient (src/jev-client.ts)     │  POST /v1/classify
+│ {state, questions:{}} in parallel       │  Noul/Choice/Score types
+└──────────────┬──────────────────────────┘
+               │ single call, 4 Qs parallel (blog: barely adds latency)
+               ▼
+┌─────────────────────────────────────────┐
+│ Policy Engine (src/harness/policy.ts)   │  before_agent_start
+│ Q1 Score complexity low/med/high        │  Q2 Noul is_urgent
+│ Q3 Noul needs_plan                      │  Q4 Noul needs_human
+│ → via:jev rules fallback mirrors same Qs │  cache TTL 30s, 3s timeout
+└──────────────┬──────────────────────────┘
+               │ injects [JEV policy] hint if needed
+               ▼
+         LLM generates → tool_call
                │
-   ┌───────────┼───────────┐
-   ▼           ▼           ▼
-┌────────┐ ┌────────┐ ┌─────────────┐
-│LAYER 2 │ │LAYER 2 │ │LAYER 2      │  src/middleware/*
-│Model   │ │AutoMode│ │Complexity   │
-│Router  │ │RiskGate│ │Scorer       │
-│Choice  │ │Noul    │ │Score+Noul   │
-└───┬────┘ └───┬────┘ └──────┬──────┘
-    │          │             │
-    ▼          ▼             ▼
- pi.setModel  pi.on(tool_call)  pi.on(before_agent_start)
-                block/confirm    inject plan hint
-               ┌─────────────────────┐
-               │ LAYER 3 — Harness  │  src/harness/*
-               │ Orchestrator, Cache│
-               │ /jev:* commands,   │
-               │ Status widget,     │
-               │ Config & Fallback  │
-               └─────────────────────┘
+               ▼
+┌─────────────────────────────────────────┐
+│ Risk Gate (src/middleware/auto-mode.ts) │  Noul is_risky
+│ pRisk >=0.85 → confirm/block            │  covers bash/write/edit
+└──────────────┬──────────────────────────┘
+               │ appendEntry + widget
+               ▼
+        Execution or blocked
 ```
 
-### Event mapping vs LangChain
+**No `ModelRouter`** — you keep control of `PI_MODEL`. Harness never calls `pi.setModel()`.
 
-| LangChain | pi-jev-harness (pi events) |
-|-----------|-------------------------|
-| `ModelRouterMiddleware` | `pi.on("before_agent_start")` + `pi.setModel()` + `pi.on("model_select")` |
-| `AutoModeMiddleware(tools=["bash"])` | `pi.on("tool_call")` for `bash/write/edit` → `{block, reason}` |
-| `agent.state` probs | `pi.appendEntry("jev", result)` + `ctx.ui.setWidget()` |
-
-## Quick start
+## Run
 
 ```bash
-# 1. API key (optional — without it, harness uses rule fallback)
-export TYPESAFE_API_KEY=ts_xxx
-
-# 2. Run with extension
-pi -e ./src/index.ts "fix the failing deploy"
-
-# 3. Or install globally
-pi install ./Pi-Jev-Harness
+export TYPESAFE_API_KEY=ts_xxx  # optional — without it, via:"rules" heuristics
+pi -e ./src/index.ts "migrate DB for prod"
+# /jev:status  → policy + risk with via + latency
+# /jev:audit   → last tool risk
+# /jev:clear   → clear cache
 ```
 
-## Commands
+Status footer: `jev:jev` (green, calibrated) or `jev:rules` (yellow, offline). Widget: `policy:high via=jev risk:0.12`.
 
-| Command | What it does |
-|---------|--------------|
-| `/jev:status` | Show last Jev classifications + latency/cost saved |
-| `/jev:route` | Force re-route model (fast vs powerful) |
-| `/jev:audit` | Dry-run risk gate on last tool calls |
-| `/jev:config` | Toggle `TYPESAFE_API_KEY` / thresholds |
+## Config (no routing)
 
-## Configuration
-
-```jsonc
-// ~/.pi/agent/settings.json or env
-{
-  "jev": {
-    "model": "jev-latest",
-    "thresholds": { "risk": 0.85, "urgent": 0.9, "complexity": 0.6 },
-    "routing": { "fast": "openai:gpt-4o-mini", "powerful": "anthropic:claude-sonnet" },
-    "cacheTtlMs": 30000,
-    "fallback": "rules" // "block" | "allow" when no API key
-  }
-}
+```ts
+// src/types.ts defaultConfig
+thresholds: { risk:0.85, urgent:0.9, complexity:0.6 }
+model: "jev-latest", cacheTtlMs:30000, timeoutMs:3000
+// env: TYPESAFE_API_KEY / JEV_API_KEY, JEV_MODEL, JEV_BASE_URL
 ```
 
-## Design doc
+## Why this helps you (end user)
 
-See `docs/DESIGN.md` for full independent harness design.
+* Safety without LLM: calibrated Noul before every `bash/write/edit`
+* Guardrails without prompts: plan hint when Score=high, urgent/human nudges
+* Zero workflow change, zero deps, auditable (`appendEntry "jev"`)
+
+See `docs/DESIGN.md` for pure Jev design.

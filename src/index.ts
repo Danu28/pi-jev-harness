@@ -1,92 +1,102 @@
 /**
- * pi-jev-harness — Independent pi extension entry.
- * No pi-brain dependency. Hooks: before_agent_start (routing + complexity), tool_call (risk gate).
+ * pi-jev-harness — Pure Jev-concept complete harness for pi.
+ * Zero deps (no pi-brain, no external tools). No auto model picking.
+ * Jev System-One: single batched classify per turn + Noul risk gate.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { JevClient, stateFromPrompt, stateFromToolCall } from "./jev-client.ts";
 import { resolveConfig } from "./harness/config.ts";
 import { JevCache } from "./harness/cache.ts";
-import { routeModel } from "./middleware/model-router.ts";
+import { evaluatePolicy } from "./harness/policy.ts";
 import { assessRisk } from "./middleware/auto-mode.ts";
-import { scoreComplexity } from "./middleware/complexity.ts";
 
 export default function (pi: ExtensionAPI) {
   const config = resolveConfig(process.env as any);
   const client = new JevClient(config);
   const cache = new JevCache(config.cacheTtlMs);
-  let lastRoute: any = null;
+  let lastPolicy: any = null;
   let lastRisk: any = null;
-  let lastComplexity: any = null;
 
   pi.on("session_start", async (_e, ctx) => {
-    const mode = client.isConfigured ? "jev" : "rules-fallback";
+    const mode = client.isConfigured ? "jev" : "rules";
     ctx.ui.setStatus("jev", ctx.ui.theme.fg(client.isConfigured ? "success" : "warning", `jev:${mode}`));
   });
 
-  // Model routing + complexity — before LLM call
+  // Harness Loop — before_agent_start: ONE Jev call with 4 parallel questions (blog: barely changes latency)
   pi.on("before_agent_start", async (event: any) => {
     const prompt: string = event.prompt ?? event.message?.content ?? "";
-    if (!prompt) return;
+    if (!prompt || String(prompt).startsWith("[JEV")) return;
     const state = stateFromPrompt(String(prompt));
-    const cacheKey = `route:${state.slice(0, 2000)}`;
-    let decision = cache.get<any>(cacheKey);
-    if (!decision) {
-      decision = await routeModel(client, config, state);
-      cache.set(cacheKey, decision);
+    const key = `policy:${state.slice(0, 2000)}`;
+    let policy = cache.get<any>(key);
+    if (!policy) {
+      policy = await evaluatePolicy(client, config, state);
+      cache.set(key, policy);
     }
-    lastRoute = decision;
-    if (decision.confidence >= 0.6) {
-      try { pi.setModel(decision.model as any); } catch {}
+    lastPolicy = policy;
+    pi.appendEntry("jev", { type: "policy", policy, at: Date.now() });
+
+    // Update widget every turn — live Jev vs rules visibility
+    // (setWidget is safe outside ctx; use session_start ctx pattern but also no-op if no ctx)
+    // Widget update with risk placeholder is done on tool_call; here we just log.
+
+    const hints: string[] = [];
+    if (policy.complexity.level !== "low" && policy.needsPlan.p >= 0.5) {
+      hints.push(`complexity=${policy.complexity.level} (${policy.complexity.score.toFixed(2)} via=${policy.complexity.via}) — create numbered plan before edits`);
     }
-    const complexity = await scoreComplexity(client, config, state);
-    lastComplexity = complexity;
-    pi.appendEntry("jev", { type: "route", decision, complexity, at: Date.now() });
-    if (complexity.needsPlan) {
-      return {
-        message: {
-          customType: "jev-complexity",
-          content: `[JEV] complexity=${complexity.level} score=${complexity.score.toFixed(2)} via=${complexity.via}. Plan recommended (${complexity.level}). Create a numbered plan before edits.`,
-          display: false,
-        },
-      };
+    if (policy.isUrgent.p >= config.thresholds.urgent) {
+      hints.push(`urgent p=${policy.isUrgent.p.toFixed(2)}`);
     }
+    if (policy.needsHuman.p >= 0.6) {
+      hints.push(`needs-human p=${policy.needsHuman.p.toFixed(2)} — ask before destructive/prod actions`);
+    }
+    if (hints.length === 0) return;
+    return {
+      message: {
+        customType: "jev-policy",
+        content: `[JEV policy via=${policy.complexity.via} latency=${policy.latencyMs}ms] ${hints.join("; ")}`,
+        display: false,
+      },
+    };
   });
 
-  // Risk gate — before every tool execution
+  // Risk gate — before every tool (Noul, calibrated). Pure Jev concept.
   pi.on("tool_call", async (event: any, ctx: any) => {
     const toolName = event.toolName as string;
     const input = event.input as Record<string, unknown>;
-    const state = stateFromToolCall(toolName, input);
     const decision = await assessRisk(client, config, toolName, input);
-    lastRisk = { toolName, input, decision };
+    lastRisk = { toolName, input, decision, via: decision.via };
     pi.appendEntry("jev", { type: "risk", toolName, decision, at: Date.now() });
 
-    // status widget: show last latency
     ctx.ui.setWidget("jev", [
-      `route:${lastRoute?.choice ?? "-"}(${lastRoute?.via ?? "-"})`,
+      `policy:${lastPolicy?.complexity.level ?? "-"} via=${lastPolicy?.complexity.via ?? "-"}`,
       `risk:${decision.pRisk.toFixed(2)} via=${decision.via}`,
     ]);
 
     if (decision.block) {
-      if (!ctx.hasUI) return { block: true, reason: decision.reason ?? `Jev risk gate blocked (p=${decision.pRisk.toFixed(2)})` };
+      if (!ctx.hasUI) return { block: true, reason: decision.reason ?? `Jev risk gate (p=${decision.pRisk.toFixed(2)})` };
       const ok = await ctx.ui.confirm("Jev Risk Gate", `${decision.reason}\n\nTool: ${toolName}\nInput: ${JSON.stringify(input).slice(0, 500)}\n\nAllow?`);
-      if (!ok) return { block: true, reason: `Blocked by Jev gate (pRisk=${decision.pRisk.toFixed(2)})` };
+      if (!ok) return { block: true, reason: `Blocked by Jev gate pRisk=${decision.pRisk.toFixed(2)}` };
+    }
+    // Urgent + destructive combo: extra nudge (pure Jev concept, no external flags)
+    if (decision.pRisk >= 0.5 && lastPolicy?.isUrgent.p >= 0.85) {
+      pi.appendEntry("jev", { type: "warn", msg: "urgent+risk combo", at: Date.now() });
     }
     return undefined;
   });
 
   pi.registerCommand("jev:status", {
-    description: "Show last Jev classifications",
+    description: "Show last Jev policy + risk (pure Jev concepts)",
     handler: async (_args: string, ctx: any) => {
       ctx.ui.notify(
-        `Jev status\n  configured: ${client.isConfigured}\n  route: ${JSON.stringify(lastRoute, null, 2)}\n  complexity: ${JSON.stringify(lastComplexity, null, 2)}\n  risk: ${JSON.stringify(lastRisk, null, 2)}`,
+        `Jev harness (pure, no model routing)\n  mode: ${client.isConfigured ? "jev" : "rules"} model=${config.model}\n  policy: ${JSON.stringify(lastPolicy, null, 2)}\n  risk: ${JSON.stringify(lastRisk, null, 2)}`,
         "info",
       );
     },
   });
 
   pi.registerCommand("jev:audit", {
-    description: "Audit last tool call risk",
+    description: "Audit last tool risk",
     handler: async (_args: string, ctx: any) => {
       if (!lastRisk) { ctx.ui.notify("No tool calls yet", "warning"); return; }
       ctx.ui.notify(JSON.stringify(lastRisk, null, 2), "info");

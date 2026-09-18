@@ -1,7 +1,7 @@
 {
   "name": "pi-jev-harness",
-  "version": "0.1.0",
-  "description": "Independent Pi harness with Jev System-One middleware — model routing + tool-risk gating + complexity scoring",
+  "version": "0.2.0",
+  "description": "Pure Jev System-One harness for Pi — zero deps, no auto model picking. Batched Noul/Score policy + tool-risk gate",
   "type": "module",
   "main": "src/index.ts",
   "keywords": ["pi", "pi-extension", "jev", "typesafe", "harness", "system-one"],

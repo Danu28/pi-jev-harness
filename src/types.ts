@@ -46,7 +46,6 @@ export interface HarnessConfig {
   apiKey?: string;
   baseUrl: string;
   thresholds: { risk: number; urgent: number; complexity: number };
-  routing: { fast: string; powerful: string };
   cacheTtlMs: number;
   fallback: "rules" | "allow" | "block";
   timeoutMs: number;
@@ -56,8 +55,15 @@ export const defaultConfig: HarnessConfig = {
   model: "jev-latest",
   baseUrl: "https://api.typesafe.ai/v1/classify",
   thresholds: { risk: 0.85, urgent: 0.9, complexity: 0.6 },
-  routing: { fast: "openai:gpt-4o-mini", powerful: "anthropic:claude-sonnet-4" },
   cacheTtlMs: 30_000,
   fallback: "rules",
   timeoutMs: 3_000,
 };
+
+export interface PolicyDecision {
+  complexity: { level: "low" | "medium" | "high"; score: number; confidence: number; via: "jev" | "rules" };
+  isUrgent: { p: number; confidence: number; via: "jev" | "rules" };
+  needsPlan: { p: number; confidence: number; via: "jev" | "rules" };
+  needsHuman: { p: number; confidence: number; via: "jev" | "rules" };
+  latencyMs: number;
+}
