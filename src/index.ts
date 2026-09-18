@@ -32,6 +32,8 @@ import {
 } from "./harness/pi-git.ts";
 import { evaluateGate, phaseOf } from "./harness/gate.ts";
 import { actionableWidgetLines as buildWidgetLines, cardStatus as buildCardStatus, nextActionHint as buildNextHint } from "./extension/ui.ts";
+import { statusHandler, planHandler, nextHandler, helpHandler, costHandler, configHandler, gitHandler } from "./extension/commands.ts";
+import { jevCalibrateExecute, jevPlanExecute, jevGitExecute } from "./extension/tools.ts";
 import type { PolicyDecision, RiskDecision, JevTelemetry } from "./types.ts";
 
 export default function (pi: ExtensionAPI): void {
@@ -550,154 +552,16 @@ export default function (pi: ExtensionAPI): void {
     return { block: true, reason: gate.reason, details: blockDetails } as unknown as undefined;
   });
 
-  // ── commands ───────────────────────────────────────────────────────────
-  pi.registerCommand("jev:status", {
-    description: "Show last pi-model Jev calibration + plan + git — card view (add --json for raw)",
-    handler: async (a: string, ctx: unknown) => {
-      if (a.trim() === "--json") {
-        (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-          JSON.stringify(
-            {
-              policy: lastPolicy,
-              risk: lastRisk,
-              plan: lastPlan,
-              git: lastGit,
-              telemetry: lastTelemetry,
-              phase: phaseOf({
-                policy: lastPolicy,
-                risk: lastRisk,
-                plan: lastPlan,
-                pendingState,
-                pendingPlanState,
-              }),
-            },
-            null,
-            2,
-          ),
-          "info",
-        );
-        return;
-      }
-      (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(cardStatus(), "info");
-    },
-  });
-  pi.registerCommand("jev:plan", {
-    description: "Show last Jev plan",
-    handler: async (_a: string, ctx: unknown) => {
-      if (!lastPlan) {
-        (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-          "No Jev plan yet — trigger a task with needs_plan>=0.5 then call jev_plan separately (once per task)",
-          "info",
-        );
-        return;
-      }
-      (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-        formatPlanNotify(lastPlan) + "\n" + formatNextStep(lastPlan),
-        "info",
-      );
-    },
-  });
-  pi.registerCommand("jev:next", {
-    description: "Show next plan step + hint",
-    handler: async (_a: string, ctx: unknown) => {
-      if (!lastPlan) {
-        (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-          "No plan — /jev:status to check phase",
-          "info",
-        );
-        return;
-      }
-      (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-        formatNextStep(lastPlan),
-        "info",
-      );
-    },
-  });
-  pi.registerCommand("jev:help", {
-    description: "Jev harness help (all commands & tools)",
-    handler: async (_a: string, ctx: unknown) => {
-      (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-        `Jev harness — pi-model tool-based, no fallback\n` +
-          `  Calibrates risk per task (5 Questions), plans high-complexity work, gates risky edits, auto-commits.\n` +
-          `  Tools: jev_calibrate, jev_plan (separate, once per task), jev_git (action: status|diff|log|commit|revert|init)\n` +
-          `  Commands: /jev:status [--json], /jev:plan, /jev:next, /jev:help, /jev:cost, /jev:config [risk|urgent], /jev:resume, /jev:git [status|diff|log|commit], /jev:log [n], /jev:commit [msg], /jev:clear [--confirm|--restore]\n` +
-          `  Tips: trivial prompts bypass calibrate (save ~450 tok); prefer smart_bundle for ≤8 files; /jev:status shows card, /jev:cost shows telemetry.\n` +
-          `  Docs: docs/DESIGN.md · README.md\n` +
-          `  Aliases: /jev:log ≡ /jev:git log, /jev:commit ≡ /jev:git commit`,
-        "info",
-      );
-    },
-  });
-  pi.registerCommand("jev:cost", {
-    description: "Show Jev token/latency telemetry",
-    handler: async (_a: string, ctx: unknown) => {
-      const st = cache.getStats();
-      const tel = lastTelemetry
-        ? `last: ${lastTelemetry.compressedChars}ch · ${lastTelemetry.latencyMs}ms · cached=${lastTelemetry.cached}${lastTelemetry.trivialBypass ? " · bypass" : ""}`
-        : "no telemetry yet";
-      (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-        `Jev cost\n  ${tel}\n  cache: ${st.size} entries · hitRate ${(st.hitRate * 100).toFixed(0)}%  ·  thresholds risk ${config.thresholds.risk} urgent ${config.thresholds.urgent}`,
-        "info",
-      );
-    },
-  });
-  pi.registerCommand("jev:config", {
-    description: "Tune thresholds live (usage: /jev:config risk 0.80 urgent 0.85)",
-    handler: async (args: string, ctx: unknown) => {
-      if (!args.trim()) {
-        (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-          `Jev config\n  risk ${config.thresholds.risk} · urgent ${config.thresholds.urgent} · complexity ${config.thresholds.complexity} · ttl ${config.cacheTtlMs}ms\n  Usage: /jev:config risk 0.80 urgent 0.85`,
-          "info",
-        );
-        return;
-      }
-      const parsed = parseThresholdArgs(args);
-      if (!parsed) {
-        (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-          `No valid thresholds parsed. Use: /jev:config risk 0.80`,
-          "info",
-        );
-        return;
-      }
-      if (parsed.risk !== undefined) config.thresholds.risk = parsed.risk;
-      if (parsed.urgent !== undefined) config.thresholds.urgent = parsed.urgent;
-      if ((parsed as Record<string, number>).complexity !== undefined)
-        config.thresholds.complexity = (parsed as Record<string, number>).complexity;
-      (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-        `Jev thresholds updated → risk ${config.thresholds.risk} urgent ${config.thresholds.urgent}`,
-        "info",
-      );
-    },
-  });
-  pi.registerCommand("jev:resume", {
-    description: "Resume last plan cursor (alias of /jev:next)",
-    handler: async (_a: string, ctx: unknown) => {
-      if (!lastPlan) {
-        (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify("No plan — /jev:status to check phase", "info");
-        return;
-      }
-      (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(formatNextStep(lastPlan), "info");
-    },
-  });
-  pi.registerCommand("jev:git", {
-    description:
-      "Jev git — status/diff/log/commit/revert/init (usage: /jev:git status | diff | log 12 | commit | revert <hash> | init)",
-    handler: async (args: string, ctx: unknown) => {
-      const a = (args.trim().split(/\s+/)[0] || "status") as JevGitParams["action"];
-      const lim = parseInt(args.trim().split(/\s+/)[1] || "12", 10);
-      const res = await handleJevGit(
-        pi as unknown as {
-          exec?: (
-            cmd: string,
-            args: string[],
-          ) => Promise<{ code?: number; stdout?: string; stderr?: string }>;
-        },
-        { action: a as never, limit: isNaN(lim) ? 12 : lim } as JevGitParams,
-        { policy: lastPolicy, plan: lastPlan, state: pendingPlanState ?? pendingState },
-      );
-      (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(res.text, "info");
-    },
-  });
+  // ── commands (delegated — s3 wiring) ──
+  const getState = () => ({ policy: lastPolicy, risk: lastRisk, plan: lastPlan, git: lastGit, pendingState, pendingPlanState, telemetry: lastTelemetry, trivialBypass: lastTrivialBypass, turnId, cache, config, clearBackup });
+  pi.registerCommand("jev:status", { description: "Show last pi-model Jev calibration + plan + git — card view (add --json for raw)", handler: statusHandler(getState as never, cardStatus) });
+  pi.registerCommand("jev:plan", { description: "Show last Jev plan", handler: planHandler(getState as never) });
+  pi.registerCommand("jev:next", { description: "Show next plan step + hint", handler: nextHandler(getState as never) });
+  pi.registerCommand("jev:help", { description: "Jev harness help (all commands & tools)", handler: helpHandler() });
+  pi.registerCommand("jev:cost", { description: "Show Jev token/latency telemetry", handler: costHandler(getState as never) });
+  pi.registerCommand("jev:config", { description: "Tune thresholds live (usage: /jev:config risk 0.80 urgent 0.85)", handler: configHandler(getState as never) });
+  pi.registerCommand("jev:resume", { description: "Resume last plan cursor (alias of /jev:next)", handler: nextHandler(getState as never) });
+  pi.registerCommand("jev:git", { description: "Jev git — status/diff/log/commit/revert/init (usage: /jev:git status | diff | log 12 | commit | revert <hash> | init)", handler: gitHandler(pi as unknown as never, getState as never) });
   // aliases /jev:log and /jev:commit removed — use /jev:git log|commit (single surface)
   pi.registerCommand("jev:clear", {
     description: "Clear calibration cache (use --confirm; --restore to undo)",
