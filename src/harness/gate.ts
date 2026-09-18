@@ -58,7 +58,7 @@ export function evaluateGate(
         pRisk: 0,
         via: "pi-model",
         code: "CALIBRATE_FIRST",
-        hint: "Call jev_calibrate with 5 Questions for this STATE. Tip: include plan if needs_plan>=0.5 to save 1 turn.",
+        hint: "Call jev_calibrate with 5 Questions for this STATE. If needs_plan>=0.5, call jev_plan separately next (once per task).",
         retryable: true,
       };
     }
@@ -91,7 +91,7 @@ export function evaluateGate(
         pRisk: state.risk?.decision.pRisk ?? 0,
         via: "pi-model",
         code: "PLAN_PENDING",
-        hint: "Call jev_plan (or re-call jev_calibrate with plan included) before bash/write/edit.",
+        hint: "Call jev_plan separately before bash/write/edit (once per task, never merged).",
         retryable: true,
       };
     }

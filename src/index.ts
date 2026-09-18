@@ -1,6 +1,6 @@
 /**
  * pi-jev-harness — PI-MODEL Calibrated, TOOL-BASED, NO FALLBACK (NOT regular).
- * Enhanced: trivial bypass, compress, tiered instruction, merged calibrate+plan,
+ * Enhanced: trivial bypass, compress, tiered instruction, SEPARATE calibrate then plan (once per task),
  * cursor, persistent cache, actionable widget, card status, telemetry, safe clear.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -75,6 +75,8 @@ export default function (pi: ExtensionAPI): void {
   let tPlan0 = 0;
   let hadGitCommitThisTurn = false;
   let turnId = 0;
+  let lastCalibrateTurn = 0; // once-per-task guard for jev_calibrate
+  let lastPlanTurn = 0; // once-per-task guard for jev_plan (separate from calibrate)
   let lastTelemetry: JevTelemetry | null = null;
   let lastTrivialBypass = false;
   let widgetDebounceUntil = 0;
@@ -108,7 +110,7 @@ export default function (pi: ExtensionAPI): void {
       pendingPlanState,
     });
     if (ph === "awaitingCalibrate") return "call jev_calibrate";
-    if (ph === "awaitingPlan") return "call jev_plan (or merged jev_calibrate with plan)";
+    if (ph === "awaitingPlan") return "call jev_plan (separate, once per task)";
     if (lastPlan && lastPlan.cursor < lastPlan.steps.length) {
       const nxt = lastPlan.steps[lastPlan.cursor];
       return `run ${nxt.action} for ${nxt.id}: ${nxt.title}`;
@@ -202,7 +204,7 @@ export default function (pi: ExtensionAPI): void {
       lastPolicy.needsPlan.p >= 0.5 &&
       lastPolicy.complexity.level !== "low"
     ) {
-      lines.push(`  plan: pending — call jev_plan (or merged calibrate)`);
+      lines.push(`  plan: pending — call jev_plan (separate, once per task)`);
     } else {
       lines.push(`  plan: —`);
     }
@@ -230,51 +232,52 @@ export default function (pi: ExtensionAPI): void {
     name: "jev_calibrate",
     label: "Jev Calibrate",
     description:
-      "System-One Jev calibration: evaluate 5 parallel Questions (complexity Score + is_urgent/needs_plan/needs_human/is_risky Noul) for STATE. Call this BEFORE any other tool. Tip: include plan if needs_plan≥0.5 to save 1 LLM turn.",
+      "System-One Jev calibration: evaluate 5 parallel Questions (complexity Score + is_urgent/needs_plan/needs_human/is_risky Noul) for STATE. Call this BEFORE any other tool. Do NOT merge plan — call jev_plan separately next if needs_plan>=0.5 (once per task).",
     parameters: jevCalibrateSchema as unknown as Record<string, unknown>,
     async execute(_toolCallId: string, params: unknown) {
       const p = params as JevCalibrateParams;
+      // once-per-task guard: calibration already done this task — separate calls, do not re-calibrate
+      if (lastCalibrateTurn === turnId && lastPolicy) {
+        return {
+          content: [{ type: "text", text: `blocked: jev_calibrate already called this task (turn ${turnId}) — proceed to jev_plan if needsPlan>=0.5, do not merge/re-call` }],
+          details: {
+            error: "already calibrated this task",
+            code: "ALREADY_CALIBRATED",
+            hint: "Calibration is once per task. Call jev_plan next if needed, do not re-call jev_calibrate.",
+            retryable: false,
+            nextAction: lastPolicy.needsPlan.p >= 0.5 ? "call jev_plan" : "proceed",
+          },
+        };
+      }
+      // reject merged payload if sent — enforce separation
+      if ((p as unknown as { plan?: unknown }).plan) {
+        return {
+          content: [{ type: "text", text: "blocked: merged calibrate+plan not allowed — call jev_calibrate (8 fields only) then jev_plan separately (once per task)" }],
+          details: {
+            error: "merged not allowed",
+            code: "MERGED_NOT_ALLOWED",
+            hint: "Call jev_calibrate without plan, then call jev_plan separately.",
+            retryable: true,
+            nextAction: "call jev_calibrate without plan",
+          },
+        };
+      }
       const latencyMs = Date.now() - t0;
       const policy = calibrateToPolicy(p, latencyMs);
       const risk = calibrateToRisk(p, config);
       lastPolicy = policy;
       lastRisk = { decision: risk };
       lastWasLowRisk = risk.pRisk < 0.4;
+      lastCalibrateTurn = turnId;
       const cacheKey = `policy:${p.state.slice(0, 2000)}`;
       cache.set(cacheKey, policy);
       persistCache();
-      // AF-02 merged: if plan included, create decision directly
-      let mergedPlan: PlanDecision | null = null;
-      if (p.plan?.steps?.length && p.needs_plan >= 0.5) {
-        const pp: JevPlanParams = {
-          state: p.state,
-          complexity_level: p.complexity_level,
-          steps: p.plan.steps as any,
-          confidence: p.plan.confidence ?? p.confidence,
-          reasoning: p.plan.reasoning,
-        };
-        mergedPlan = planToDecision(pp, latencyMs);
-        lastPlan = mergedPlan;
-        pendingPlanState = null;
-        cache.set(`plan:${p.state.slice(0, 2000)}`, mergedPlan);
-        persistCache();
-        append({
-          type: "plan",
-          plan: mergedPlan,
-          params: pp,
-          at: Date.now(),
-          provider: process.env.PI_PROVIDER,
-          model: process.env.PI_MODEL,
-          merged: true,
-        });
+      const needsPlan = policy.needsPlan.p >= 0.5 && policy.complexity.level !== "low";
+      if (needsPlan) {
+        pendingPlanState = p.state;
+        tPlan0 = Date.now();
       } else {
-        const needsPlan = policy.needsPlan.p >= 0.5 && policy.complexity.level !== "low";
-        if (needsPlan) {
-          pendingPlanState = p.state;
-          tPlan0 = Date.now();
-        } else {
-          pendingPlanState = null;
-        }
+        pendingPlanState = null;
       }
       // telemetry
       const instrLen = JSON.stringify(p).length;
@@ -299,28 +302,19 @@ export default function (pi: ExtensionAPI): void {
         telemetry: lastTelemetry,
       });
       const base = `calibrated via:pi-model complexity=${policy.complexity.level} score=${policy.complexity.score.toFixed(2)} urgent=${policy.isUrgent.p.toFixed(2)} needsPlan=${policy.needsPlan.p.toFixed(2)} risk=${risk.pRisk.toFixed(2)}`;
-      const needsPlanNow =
-        !mergedPlan && policy.needsPlan.p >= 0.5 && policy.complexity.level !== "low";
-      const suffix = mergedPlan
-        ? `\n✅ merged plan ${mergedPlan.steps.length} steps — ` + formatNextStep(mergedPlan)
-        : needsPlanNow
-          ? "\n[JEV plan required next — call jev_plan for this STATE now]"
-          : "";
-      const nextAct = mergedPlan
-        ? `run ${mergedPlan.steps[0].action}`
-        : needsPlanNow
-          ? "call jev_plan"
-          : "proceed";
+      const needsPlanNow = policy.needsPlan.p >= 0.5 && policy.complexity.level !== "low";
+      const suffix = needsPlanNow ? "\n[JEV plan required next — call jev_plan for this STATE now (separate, once per task)]" : "";
+      const nextAct = needsPlanNow ? "call jev_plan" : "proceed";
       return {
         content: [{ type: "text", text: base + suffix }],
         details: {
           policy,
           risk,
           needsPlan: policy.needsPlan.p >= 0.5,
-          plan: mergedPlan,
+          plan: null,
           nextAction: nextAct,
           telemetry: lastTelemetry,
-          hint: needsPlanNow ? "Call jev_plan next" : `Next: ${nextAct}`,
+          hint: needsPlanNow ? "Call jev_plan next (separate call, once per task)" : `Next: ${nextAct}`,
         },
       };
     },
@@ -330,24 +324,37 @@ export default function (pi: ExtensionAPI): void {
     name: "jev_plan",
     label: "Jev Plan",
     description:
-      "System-Two Jev plan: decompose STATE into 2-7 sequential steps with per-step risk/needsHuman. Call AFTER jev_calibrate when needs_plan>=0.5. Prefer smart_bundle for ≤8 files.",
+      "System-Two Jev plan: decompose STATE into 2-7 sequential steps with per-step risk/needsHuman. Call AFTER jev_calibrate when needs_plan>=0.5 (separate, once per task, never merged). Prefer smart_bundle for ≤8 files.",
     parameters: jevPlanSchema as unknown as Record<string, unknown>,
     async execute(_toolCallId: string, params: unknown) {
       const p = params as JevPlanParams;
       if (!lastPolicy)
         return {
-          content: [{ type: "text", text: "blocked: must call jev_calibrate before jev_plan" }],
+          content: [{ type: "text", text: "blocked: must call jev_calibrate before jev_plan (separate calls, once per task)" }],
           details: {
             error: "calibrate first",
             code: "CALIBRATE_FIRST",
-            hint: "Call jev_calibrate first",
+            hint: "Call jev_calibrate first (separate, once per task), then jev_plan",
             retryable: true,
             nextAction: "call jev_calibrate",
           },
         };
+      if (lastPlanTurn === turnId && lastPlan) {
+        return {
+          content: [{ type: "text", text: `blocked: jev_plan already called this task (turn ${turnId}) — once per task, proceed to execution` }],
+          details: {
+            error: "already planned this task",
+            code: "ALREADY_PLANNED",
+            hint: "Plan is once per task. Proceed with plan steps, do not re-call jev_plan.",
+            retryable: false,
+            nextAction: `run ${lastPlan.steps[lastPlan.cursor ?? 0]?.action ?? "read"}`,
+          },
+        };
+      }
       const latencyMs = Date.now() - (tPlan0 || t0);
       const decision = planToDecision(p, latencyMs);
       lastPlan = decision;
+      lastPlanTurn = turnId;
       pendingPlanState = null;
       cache.set(`plan:${p.state.slice(0, 2000)}`, decision);
       persistCache();
@@ -781,7 +788,7 @@ export default function (pi: ExtensionAPI): void {
     handler: async (_a: string, ctx: unknown) => {
       if (!lastPlan) {
         (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-          "No Jev plan yet — trigger a task with needs_plan>=0.5 then call jev_plan (or merged calibrate)",
+          "No Jev plan yet — trigger a task with needs_plan>=0.5 then call jev_plan separately (once per task)",
           "info",
         );
         return;
@@ -814,7 +821,7 @@ export default function (pi: ExtensionAPI): void {
       (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
         `Jev harness — pi-model tool-based, no fallback\n` +
           `  Calibrates risk per task (5 Questions), plans high-complexity work, gates risky edits, auto-commits.\n` +
-          `  Tools: jev_calibrate (merged plan opt), jev_plan, jev_git(+wrappers)\n` +
+          `  Tools: jev_calibrate, jev_plan (separate, once per task), jev_git(+wrappers)\n` +
           `  Commands: /jev:status [--json], /jev:plan, /jev:next, /jev:git, /jev:cost, /jev:config, /jev:clear\n` +
           `  Tips: trivial prompts bypass calibrate (save tokens); prefer smart_bundle for ≤8 files.\n` +
           `  Docs: docs/DESIGN.md`,
@@ -969,6 +976,8 @@ export default function (pi: ExtensionAPI): void {
       pendingPlanState = null;
       hadGitCommitThisTurn = false;
       lastTrivialBypass = false;
+      lastCalibrateTurn = 0;
+      lastPlanTurn = 0;
       (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
         "Jev cache cleared — next turn will recalibrate via pi-model (backup kept: /jev:clear --restore)",
         "info",

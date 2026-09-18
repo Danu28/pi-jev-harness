@@ -324,11 +324,12 @@ export async function autoCommitIfDirty(
   }
   const { stdout: por } = await execGit(pi, ["status", "--porcelain"]);
   if (!por.trim()) return { committed: false };
-  // PR-06: only auto-commit if plan done or high complexity; otherwise skip noisy micro-commits
+  // Fixed: previously required plan done or high, causing missed commits for medium or active plan at cursor 0.
+  // Now: auto-commit when dirty if policy medium/high (even with active plan), low only when plan done — no missed clean commits.
   const shouldCommit = (() => {
-    if (!ctx.plan) return ctx.policy?.complexity.level === "high";
-    // commit when cursor reached end (task done) or no cursor (legacy plan)
-    if (ctx.plan.cursor !== undefined) return ctx.plan.cursor >= ctx.plan.steps.length;
+    if (!ctx.policy) return false;
+    if (!ctx.plan) return ctx.policy.complexity.level !== "low";
+    if (ctx.policy.complexity.level === "low") return ctx.plan.cursor >= ctx.plan.steps.length;
     return true;
   })();
   if (!shouldCommit) return { committed: false };
