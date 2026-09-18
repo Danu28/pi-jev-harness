@@ -134,30 +134,13 @@ export default function (pi: ExtensionAPI): void {
     }
     const risk = gate.pRisk.toFixed(2);
     const base = `jev: ${lastPolicy.complexity.level} · risk ${risk} · ${ph}`;
-    const extras: string[] = [];
     if (lastPlan) {
       const cur = lastPlan.cursor ?? 0;
       const total = lastPlan.steps.length;
       const nxt = cur < total ? `${lastPlan.steps[cur].id} ${lastPlan.steps[cur].action}` : "done";
-      extras.push(`plan:${cur}/${total} next:${nxt}`);
+      return [base, `plan:${cur}/${total} next:${nxt}`];
     }
-    if (lastGit?.hash) extras.push(`git:${lastGit.hash.slice(0, 7)}`);
-    if (lastTelemetry) {
-      const tot = lastTelemetry.compressedChars;
-      extras.push(
-        `${tot}ch · ${lastTelemetry.cached ? "cached" : `${lastTelemetry.latencyMs}ms`} · ${gate.via}`,
-      );
-    } else {
-      extras.push(`via:${gate.via}`);
-    }
-    const noEmojiW =
-      process.env.PI_NO_EMOJI === "1" ||
-      process.env.NO_EMOJI === "1" ||
-      process.env.NO_COLOR === "1";
-    if (gate.warning) extras.push(`${noEmojiW ? "[warn]" : "⚠"} ${gate.warning.slice(0, 60)}`);
-    const second = extras.join(" · ");
-    const maxSecond = 120;
-    return [base, second.length > maxSecond ? second.slice(0, maxSecond - 1) + "…" : second];
+    return [base];
   }
 
   function cardStatus(): string {

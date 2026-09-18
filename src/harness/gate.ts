@@ -120,35 +120,10 @@ export function evaluateGate(
         code = "NEEDS_HUMAN";
         hint = `Step ${found.id} needs human confirmation. Use UI confirm or /jev:next.`;
       }
-      // dependsOn check — warn if dependencies not done (cursor-based)
-      if (found.dependsOn?.length) {
-        const doneIds = new Set(state.plan.done ?? []);
-        const notDone = found.dependsOn.filter((d) => !doneIds.has(d));
-        if (notDone.length) {
-          warning = `s:${found.id} depends on ${notDone.join(",")} not yet done — consider running those first`;
-          // do not block, just warn (enforce order gently)
-        }
-      }
+      // dependsOn / out-of-order checks removed — noisy for autonomous agent (user won't block)
+      // keep product quality via risk threshold blocking only; plan progress shown in widget/card
     } else {
-      // tool not in plan but plan exists — check if any step with same family warns about skipping ahead
-      const cursorStep = state.plan.steps[state.plan.cursor ?? 0];
-      if (
-        cursorStep &&
-        cursorStep.action !== toolName &&
-        !matchesAction(cursorStep.action, toolName)
-      ) {
-        // gentle nudge, not block
-        const pending = state.plan.steps
-          .slice(state.plan.cursor ?? 0)
-          .map((s) => s.id)
-          .join(",");
-        if (state.plan.cursor !== undefined && state.plan.cursor < state.plan.steps.length) {
-          // only warn for write/edit/bash skew
-          if (["bash", "write", "edit", "smart_bundle", "smart_edit"].includes(toolName)) {
-            warning = `out-of-order: next planned is ${cursorStep.id} (${cursorStep.action}), pending [${pending}]`;
-          }
-        }
-      }
+      // previously: out-of-order warning for write/edit/bash — removed (agent runs unattended)
     }
   }
   // Also detect any needsHuman step matching this tool even if not primary found
