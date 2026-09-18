@@ -31,40 +31,13 @@ import {
   type JevGitParams,
 } from "./harness/pi-git.ts";
 import { evaluateGate, phaseOf } from "./harness/gate.ts";
+import { actionableWidgetLines as buildWidgetLines, cardStatus as buildCardStatus, nextActionHint as buildNextHint } from "./extension/ui.ts";
 import type { PolicyDecision, RiskDecision, JevTelemetry } from "./types.ts";
 
 export default function (pi: ExtensionAPI): void {
   let config = resolveConfig(process.env as unknown as NodeJS.ProcessEnv);
   const cache = new JevCache(config.cacheTtlMs);
-  // PR-01 light persist: write-through to .pi/jev-cache.json (fire-and-forget)
-  function persistCache() {
-    try {
-      import("node:fs")
-        .then((m) => {
-          const fs = m as unknown as {
-            promises: {
-              mkdir: (p: string, o: unknown) => Promise<void>;
-              writeFile: (p: string, d: string, e: string) => Promise<void>;
-            };
-          };
-          fs.promises
-            .mkdir(".pi", { recursive: true })
-            .catch(() => {})
-            .then(() => {
-              const entries = (
-                cache as unknown as { entries: () => Array<[string, { v: unknown; exp: number }]> }
-              )
-                .entries()
-                .slice(0, 120);
-              const arr = entries.map(([k, e]) => [k, e.v, e.exp] as const);
-              fs.promises
-                .writeFile(".pi/jev-cache.json", JSON.stringify(arr).slice(0, 200000), "utf8")
-                .catch(() => {});
-            });
-        })
-        .catch(() => {});
-    } catch {}
-  }
+  // cache is in-memory LRU only — file persistence removed (was write-only, never hydrated)
   let lastPolicy: PolicyDecision | null = null;
   let lastRisk: { decision: RiskDecision } | null = null;
   let lastPlan: PlanDecision | null = null;
@@ -82,15 +55,7 @@ export default function (pi: ExtensionAPI): void {
   let widgetDebounceUntil = 0;
   let clearBackup: { policy: PolicyDecision | null; plan: PlanDecision | null; at: number } | null =
     null;
-  let lastWasLowRisk = true;
-  void lastWasLowRisk; // tier hint for shouldUseShortInstruction — suppress unused-var (wired via buildJevInstruction opts in future)
-
-  // persistent cache hydration (best-effort, no hard deps)
-  try {
-    // pi cache API if available
-    const cached = (pi as unknown as { loadCache?: () => unknown }).loadCache?.();
-    void cached;
-  } catch {}
+  let lastWasLowRisk = true; // tier hint for shouldUseShortInstruction
 
   const append = (entry: unknown) => {
     try {
@@ -101,134 +66,13 @@ export default function (pi: ExtensionAPI): void {
     } catch {}
   };
 
-  function nextActionHint(): string {
-    const ph = phaseOf({
-      policy: lastPolicy,
-      risk: lastRisk,
-      plan: lastPlan,
-      pendingState,
-      pendingPlanState,
-    });
-    if (ph === "awaitingCalibrate") return "call jev_calibrate";
-    if (ph === "awaitingPlan") return "call jev_plan (separate, once per task)";
-    if (lastPlan && lastPlan.cursor < lastPlan.steps.length) {
-      const nxt = lastPlan.steps[lastPlan.cursor];
-      return `run ${nxt.action} for ${nxt.id}: ${nxt.title}`;
-    }
-    if (lastPlan && lastPlan.cursor >= lastPlan.steps.length) return "call jev_git commit";
-    return "proceed with tool";
+  function uiState(): import("./extension/ui.ts").UiState {
+    return { policy: lastPolicy, risk: lastRisk, plan: lastPlan, git: lastGit, pendingState, pendingPlanState, telemetry: lastTelemetry, trivialBypass: lastTrivialBypass, turnId, cache, config };
   }
+  function nextActionHint(): string { return buildNextHint(uiState()); }
+  function actionableWidgetLines(gate: { pRisk: number; via: string; warning?: string }): string[] { return buildWidgetLines(uiState(), gate); }
 
-  function actionableWidgetLines(gate: { pRisk: number; via: string; warning?: string }): string[] {
-    const ph = phaseOf({
-      policy: lastPolicy,
-      risk: lastRisk,
-      plan: lastPlan,
-      pendingState,
-      pendingPlanState,
-    });
-    if (!lastPolicy) {
-      if (lastTrivialBypass)
-        return [`jev: trivial bypass • no calibrate (phase:${ph})`, `next: ${nextActionHint()}`];
-      return [`jev: awaiting jev_calibrate · phase:${ph}`, `next: ${nextActionHint()}`];
-    }
-    const risk = gate.pRisk.toFixed(2);
-    const base = `jev: ${lastPolicy.complexity.level} · risk ${risk} · ${ph}`;
-    if (lastPlan) {
-      const cur = lastPlan.cursor ?? 0;
-      const total = lastPlan.steps.length;
-      const nxt = cur < total ? `${lastPlan.steps[cur].id} ${lastPlan.steps[cur].action}` : "done";
-      return [base, `plan:${cur}/${total} next:${nxt}`];
-    }
-    return [base];
-  }
-
-  function cardStatus(): string {
-    const noEmoji =
-      process.env.PI_NO_EMOJI === "1" ||
-      process.env.NO_EMOJI === "1" ||
-      process.env.NO_COLOR === "1";
-    const hdr = noEmoji ? "[jev] pi-model (tool, no fallback)" : "JeV pi-model (tool, no fallback)";
-    const prov = `${process.env.PI_PROVIDER ?? "pi"}/${process.env.PI_MODEL ?? config.model}`;
-    const ph = phaseOf({
-      policy: lastPolicy,
-      risk: lastRisk,
-      plan: lastPlan,
-      pendingState,
-      pendingPlanState,
-    });
-    const lines: string[] = [];
-    lines.push(`${hdr}`);
-    lines.push(`  provider: ${prov}  ·  phase: ${ph}  ·  turn: ${turnId}`);
-    if (!lastPolicy) {
-      lines.push(
-        `  policy: (none)${lastTrivialBypass ? " — trivial bypass active (no calibrate needed)" : ` — awaiting jev_calibrate (phase: ${ph})`}`,
-      );
-    } else {
-      const c = lastPolicy.complexity;
-      const badge =
-        c.level === "high"
-          ? noEmoji
-            ? "[high]"
-            : "🔴 high"
-          : c.level === "medium"
-            ? noEmoji
-              ? "[med]"
-              : "🟡 medium"
-            : noEmoji
-              ? "[low]"
-              : "🟢 low";
-      lines.push(
-        `  policy: ${badge} score ${c.score.toFixed(2)} · urgent ${lastPolicy.isUrgent.p.toFixed(2)} · needsPlan ${lastPolicy.needsPlan.p.toFixed(2)} · risk ${lastRisk?.decision.pRisk.toFixed(2) ?? "-"} via ${lastRisk?.decision.via ?? "pi-model"} · conf ${(c.confidence * 100).toFixed(0)}%`,
-      );
-    }
-    if (lastPlan) {
-      const cur = lastPlan.cursor ?? 0;
-      const tot = lastPlan.steps.length;
-      const rawBar = "▓".repeat(Math.min(cur, tot)) + "░".repeat(Math.max(0, tot - cur));
-      const bar = noEmoji ? `[${cur}/${tot}]` : rawBar;
-      lines.push(
-        `  plan: ${cur}/${tot} ${bar}  maxRisk ${lastPlan.maxRisk.toFixed(2)} via ${lastPlan.via}`,
-      );
-      lines.push(`  next: ${formatNextStep(lastPlan).split("\n")[0]}`);
-      if (lastPlan.reasoning) lines.push(`  why: ${lastPlan.reasoning}`);
-    } else if (
-      lastPolicy &&
-      lastPolicy.needsPlan.p >= 0.5 &&
-      lastPolicy.complexity.level !== "low"
-    ) {
-      lines.push(`  plan: pending — call jev_plan (separate, once per task)`);
-    } else {
-      lines.push(`  plan: —`);
-    }
-    if (lastGit?.hash)
-      lines.push(
-        `  git: ${lastGit.hash.slice(0, 7)} · ${lastGit.action ?? "commit"}  (undo: /jev:git revert ${lastGit.hash.slice(0, 7)})`,
-      );
-    else lines.push(`  git: —  (no commits yet)`);
-    if (lastTelemetry) {
-      const hr = cache.getStats().hitRate;
-      const st = cache.getStats();
-      lines.push(
-        `  cost: ${lastTelemetry.compressedChars}ch · ${lastTelemetry.latencyMs}ms · cached=${lastTelemetry.cached} · hitRate ${(hr * 100).toFixed(0)}% · cache ${st.size} entries`,
-      );
-    } else {
-      const st = cache.getStats();
-      lines.push(
-        `  cost: —  (cache ${st.size} entries · hitRate ${(st.hitRate * 100).toFixed(0)}%)`,
-      );
-    }
-    lines.push(`  nextAction: ${nextActionHint()}`);
-    lines.push(
-      `  thresholds: risk ${config.thresholds.risk} · urgent ${config.thresholds.urgent}  (/jev:config to tune)`,
-    );
-    lines.push(
-      `  tips: /jev:next /jev:plan /jev:cost /jev:help · /jev:resume · /jev:git · /jev:clear`,
-    );
-    if (lastTrivialBypass)
-      lines.push(`  note: trivial prompt — calibration bypassed (token saved ~450)`);
-    return lines.join("\n");
-  }
+  function cardStatus(): string { return buildCardStatus(uiState()); }
 
   // ── tools ──────────────────────────────────────────────────────────────
   (pi as any).registerTool({
@@ -284,7 +128,6 @@ export default function (pi: ExtensionAPI): void {
       lastCalibrateTurn = turnId;
       const cacheKey = `policy:${p.state.slice(0, 2000)}`;
       cache.set(cacheKey, policy);
-      persistCache();
       const needsPlan = policy.needsPlan.p >= 0.5 && policy.complexity.level !== "low";
       if (needsPlan) {
         pendingPlanState = p.state;
@@ -378,7 +221,6 @@ export default function (pi: ExtensionAPI): void {
       lastPlanTurn = turnId;
       pendingPlanState = null;
       cache.set(`plan:${p.state.slice(0, 2000)}`, decision);
-      persistCache();
       append({
         type: "plan",
         plan: decision,
@@ -444,57 +286,7 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  // AF-05 wrappers for LLM precision (1 impl, N registrations)
-  const gitWrappers: Array<{
-    name: string;
-    action: JevGitParams["action"];
-    label: string;
-    desc: string;
-  }> = [
-    {
-      name: "jev_git_status",
-      action: "status",
-      label: "Jev Git Status",
-      desc: "Git status — coalesced single exec, branch+porcelain",
-    },
-    {
-      name: "jev_git_commit",
-      action: "commit",
-      label: "Jev Git Commit",
-      desc: "Git commit — auto message from Jev policy/plan if message omitted",
-    },
-    { name: "jev_git_diff", action: "diff", label: "Jev Git Diff", desc: "Git diff --stat + diff" },
-    { name: "jev_git_log", action: "log", label: "Jev Git Log", desc: "Git log oneline" },
-  ];
-  for (const w of gitWrappers) {
-    (pi as any).registerTool({
-      name: w.name,
-      label: w.label,
-      description: w.desc,
-      parameters: {
-        type: "object",
-        properties:
-          w.action === "commit"
-            ? { message: { type: "string" }, files: { type: "array", items: { type: "string" } } }
-            : w.action === "log"
-              ? { limit: { type: "number" } }
-              : {},
-        required: [],
-      } as unknown as Record<string, unknown>,
-      async execute(_id: string, params: unknown) {
-        const p = { action: w.action, ...(params as object) } as JevGitParams;
-        const res = await handleJevGit(pi as unknown as any, p, {
-          policy: lastPolicy,
-          plan: lastPlan,
-          state: pendingPlanState ?? pendingState,
-        });
-        return {
-          content: [{ type: "text", text: res.text }],
-          details: { ...res.details, nextAction: nextActionHint() },
-        };
-      },
-    });
-  }
+  // git wrappers removed — use jev_git {action:"status"|"commit"|"diff"|"log"} (single tool, same impl)
 
   pi.on("session_start", async (_e: unknown, ctx: unknown) => {
     const c = ctx as {
@@ -698,7 +490,6 @@ export default function (pi: ExtensionAPI): void {
           // persist updated plan to cache
           const st = pendingPlanState ?? pendingState ?? lastPlan.state;
           if (st) cache.set(`plan:${st.slice(0, 2000)}`, lastPlan);
-          persistCache();
         }
       } else if (gate.warning) {
         // out-of-order warning already in gate — will surface via widget
@@ -828,7 +619,7 @@ export default function (pi: ExtensionAPI): void {
       (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
         `Jev harness — pi-model tool-based, no fallback\n` +
           `  Calibrates risk per task (5 Questions), plans high-complexity work, gates risky edits, auto-commits.\n` +
-          `  Tools: jev_calibrate, jev_plan (separate, once per task), jev_git (+wrappers: status/diff/log/commit)\n` +
+          `  Tools: jev_calibrate, jev_plan (separate, once per task), jev_git (action: status|diff|log|commit|revert|init)\n` +
           `  Commands: /jev:status [--json], /jev:plan, /jev:next, /jev:help, /jev:cost, /jev:config [risk|urgent], /jev:resume, /jev:git [status|diff|log|commit], /jev:log [n], /jev:commit [msg], /jev:clear [--confirm|--restore]\n` +
           `  Tips: trivial prompts bypass calibrate (save ~450 tok); prefer smart_bundle for ≤8 files; /jev:status shows card, /jev:cost shows telemetry.\n` +
           `  Docs: docs/DESIGN.md · README.md\n` +
@@ -879,19 +670,13 @@ export default function (pi: ExtensionAPI): void {
     },
   });
   pi.registerCommand("jev:resume", {
-    description: "Resume last plan cursor",
+    description: "Resume last plan cursor (alias of /jev:next)",
     handler: async (_a: string, ctx: unknown) => {
       if (!lastPlan) {
-        (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-          "No plan to resume",
-          "info",
-        );
+        (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify("No plan — /jev:status to check phase", "info");
         return;
       }
-      (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-        `Resuming ${lastPlan.steps.length} steps — ` + formatNextStep(lastPlan),
-        "info",
-      );
+      (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(formatNextStep(lastPlan), "info");
     },
   });
   pi.registerCommand("jev:git", {
@@ -913,42 +698,7 @@ export default function (pi: ExtensionAPI): void {
       (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(res.text, "info");
     },
   });
-  pi.registerCommand("jev:log", {
-    description: "Show git log (alias — prefer /jev:git log) — via jev_git",
-    handler: async (args: string, ctx: unknown) => {
-      const lim = parseInt(args.trim() || "12", 10);
-      const res = await handleJevGit(
-        pi as unknown as {
-          exec?: (
-            cmd: string,
-            args: string[],
-          ) => Promise<{ code?: number; stdout?: string; stderr?: string }>;
-        },
-        { action: "log", limit: isNaN(lim) ? 12 : lim },
-        { policy: lastPolicy, plan: lastPlan, state: pendingState },
-      );
-      (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(res.text, "info");
-    },
-  });
-  pi.registerCommand("jev:commit", {
-    description: "Commit via jev_git (alias — prefer /jev:git commit) (usage: /jev:commit [msg])",
-    handler: async (args: string, ctx: unknown) => {
-      const res = await handleJevGit(
-        pi as unknown as {
-          exec?: (
-            cmd: string,
-            args: string[],
-          ) => Promise<{ code?: number; stdout?: string; stderr?: string }>;
-        },
-        { action: "commit", message: args.trim() || undefined },
-        { policy: lastPolicy, plan: lastPlan, state: pendingPlanState ?? pendingState },
-      );
-      (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-        res.text,
-        res.details?.error ? "warning" : "info",
-      );
-    },
-  });
+  // aliases /jev:log and /jev:commit removed — use /jev:git log|commit (single surface)
   pi.registerCommand("jev:clear", {
     description: "Clear calibration cache (use --confirm; --restore to undo)",
     handler: async (a: string, ctx: unknown) => {
