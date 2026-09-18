@@ -1,34 +1,18 @@
-# pi-jev-harness — PI-MODEL-POWERED Jev Harness (NOT regular extension)
+# pi-jev-harness — PI-MODEL Jev Harness (TOOL, NO FALLBACK, NOT regular)
 
-> **Uses YOUR pi model** (`PI_PROVIDER/PI_MODEL` — e.g. `opencode-go/muse-spark-1.2`) to evaluate Jev **Score/Noul** Questions — NOT regex, NOT external Typesafe key.
+> **No fallback. Tool-based calibration in same session.** User prompt → build Jev prompt (5 parallel Questions: Score/Noul) → **pi model calls `jev_calibrate` tool** with JSON → `via:pi-model`.
 
-**System-One via pi-model:** `before_agent_start` → 1 batched prompt (4 Qs parallel) to your pi model → JSON `{complexity, is_urgent, needs_plan, needs_human}` → `via:pi-model` with thresholds. `tool_call` → 1 Noul `is_risky` to same pi model → `via:pi-model` block. Falls back to `via:rules` only if pi model unreachable — but even fallback keeps **typed Jev concepts + thresholds** (not regular `if (rm -rf) block`).
-
-## Why NOT regular?
-
-| Regular extension (`permission-gate.ts`) | **pi-jev-harness (Jev)** |
-|---|---|
-| `if (/rm -rf/.test(cmd)) block` binary, bash-only, no probs | **Noul/Score** typed: `pRisk 0.95 confidence 0.85 threshold 0.85`, `complexity Score low/med/high`, covers `bash|write|edit`, parallel, audited |
-| Single regex, no urgency/plan/human | **4 parallel Questions** per turn (Jev blog) → `complexity, is_urgent, needs_plan, needs_human` |
-| No model, no calibration | **Powered by YOUR pi model** — same model you pay for, via `PI_PROVIDER/PI_MODEL` + `auth.json` |
-
-## Run (no key)
-
-```bash
-pi -e ./src/index.ts "Audit this project for safer refactoring"
-# footer: jev:pi-model opencode-go/muse-spark  widget: policy:high via:pi-model risk:0.10 via:rules
-# /jev:status → {provider: opencode-go, policy:{via:pi-model latency:120ms}, risk:{via:pi-model}}
-# /jev:audit /jev:clear
+**Flow (same session, not fetch):**
+```
+User: "Audit this project for safer refactoring"
+  ↓ before_agent_start injects: [JEV calibration required — call jev_calibrate]
+  ↓ pi model (PI_PROVIDER/PI_MODEL) calls: jev_calibrate {complexity_score:0.78, complexity_level:"high", is_urgent:0.2, needs_plan:0.9, needs_human:0.2, is_risky:0.1, confidence:0.88}
+  ↓ tool execute → PolicyDecision via:pi-model → hints + widget + /jev:status
+LLM → bash/write/edit → tool_call gate uses last calibration's is_risky via:pi-model → block/allow
 ```
 
-No `TYPESAFE_API_KEY`. No `JEV_API_KEY`. No external deps. `dependencies:{}`.
+**NOT regular extension:**
+- Regular: `if (/rm -rf/.test(cmd)) block` binary bash-only
+- **Jev tool:** 5 parallel Questions typed `Score/Noul + confidence + threshold` (risk 0.85), `via:pi-model`, audited, no regex, no Typesafe key, no PI_API_BASE, zero deps
 
-## Architecture
-
-```
-User prompt → src/harness/pi-classifier.ts → buildJevPrompt(4 Qs) → callPiModel(PI_PROVIDER/PI_MODEL) → JSON → PolicyDecision via:pi-model
-  ↓ fallback → enhanced rules (still Score/Noul + heavy bump 0.48, not regex-only)
-LLM → tool_call → pi-classifier Noul is_risky via pi-model → block/confirm → appendEntry + widget
-```
-
-See `src/harness/pi-classifier.ts` and `docs/DESIGN.md`.
+Run: `pi -e ./src/index.ts` → footer `jev:pi-model opencode-go/muse-spark` → `/jev:status` shows `via:pi-model` calibration.

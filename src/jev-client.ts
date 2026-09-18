@@ -12,12 +12,12 @@ export class JevClient {
   }
 
   async classify(req: JevRequest): Promise<JevResponse> {
-    if (!this.config.apiKey) throw new Error("TYPESAFE_API_KEY missing — use fallback");
+    if (!this.config.apiKey || !this.config.baseUrl) throw new Error("TYPESAFE_API_KEY missing — use fallback");
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), this.config.timeoutMs);
     const start = Date.now();
     try {
-      const res = await fetch(this.config.baseUrl, {
+      const res = await fetch(this.config.baseUrl!, {
         method: "POST",
         headers: {
           "content-type": "application/json",

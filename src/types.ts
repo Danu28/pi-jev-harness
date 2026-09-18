@@ -43,11 +43,11 @@ export interface JevRequest {
 
 export interface HarnessConfig {
   model: JevModel;
-  apiKey?: string; // optional — no key needed, rules fallback IS the Jev harness
-  baseUrl: string;
+  apiKey?: string;
+  baseUrl?: string;
   thresholds: { risk: number; urgent: number; complexity: number };
   cacheTtlMs: number;
-  fallback: "rules" | "allow" | "block";
+  fallback?: string;
   timeoutMs: number;
 }
 
@@ -60,7 +60,7 @@ export const defaultConfig: HarnessConfig = {
   timeoutMs: 3_000,
 };
 
-export type Via = "jev" | "rules" | "pi-model";
+export type Via = "pi-model" | "rules" | "jev"; // pi-model is primary (tool-based, no fallback); rules/jev kept for legacy files
 export interface PolicyDecision {
   complexity: { level: "low" | "medium" | "high"; score: number; confidence: number; via: Via };
   isUrgent: { p: number; confidence: number; via: Via };
