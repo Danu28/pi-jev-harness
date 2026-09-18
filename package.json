@@ -1,11 +1,20 @@
 {
   "name": "pi-jev-harness",
-  "version": "0.2.0",
-  "description": "Pure Jev System-One harness for Pi — zero deps, no auto model picking. Batched Noul/Score policy + tool-risk gate",
+  "version": "0.3.0",
+  "description": "Pure Jev System-One harness for Pi — pi-model tool-based calibrate + plan + git, zero deps, no fallback",
   "type": "module",
   "main": "src/index.ts",
-  "keywords": ["pi", "pi-extension", "jev", "typesafe", "harness", "system-one"],
+  "keywords": ["pi", "pi-extension", "pi-package", "jev", "typesafe", "harness", "system-one", "agent"],
   "license": "MIT",
+  "author": "Danu28",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Danu28/pi-jev-harness.git"
+  },
+  "homepage": "https://github.com/Danu28/pi-jev-harness#readme",
+  "bugs": {
+    "url": "https://github.com/Danu28/pi-jev-harness/issues"
+  },
   "dependencies": {},
   "devDependencies": {
     "typescript": "^5.6.0"

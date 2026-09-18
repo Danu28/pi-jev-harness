@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.pi/
+artifacts/
+*.log
+.DS_Store
+.env
+.env.*
+sessions/
