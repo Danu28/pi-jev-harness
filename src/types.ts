@@ -43,7 +43,7 @@ export interface JevRequest {
 
 export interface HarnessConfig {
   model: JevModel;
-  apiKey?: string;
+  apiKey?: string; // optional — no key needed, rules fallback IS the Jev harness
   baseUrl: string;
   thresholds: { risk: number; urgent: number; complexity: number };
   cacheTtlMs: number;
