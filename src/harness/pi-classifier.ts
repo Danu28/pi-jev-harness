@@ -5,7 +5,6 @@
 import type { HarnessConfig, PolicyDecision, Via } from "../types.ts";
 import { compressState, shouldUseShortInstruction } from "../jev-client.ts";
 
-
 export const jevCalibrateSchema = {
   type: "object",
   properties: {

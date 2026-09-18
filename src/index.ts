@@ -143,14 +143,17 @@ export default function (pi: ExtensionAPI): void {
     }
     if (lastGit?.hash) extras.push(`git:${lastGit.hash.slice(0, 7)}`);
     if (lastTelemetry) {
-      const tot = lastTelemetry.instructionChars;
+      const tot = lastTelemetry.compressedChars;
       extras.push(
         `${tot}ch · ${lastTelemetry.cached ? "cached" : `${lastTelemetry.latencyMs}ms`} · ${gate.via}`,
       );
     } else {
       extras.push(`via:${gate.via}`);
     }
-    const noEmojiW = process.env.PI_NO_EMOJI === "1" || process.env.NO_EMOJI === "1" || process.env.NO_COLOR === "1";
+    const noEmojiW =
+      process.env.PI_NO_EMOJI === "1" ||
+      process.env.NO_EMOJI === "1" ||
+      process.env.NO_COLOR === "1";
     if (gate.warning) extras.push(`${noEmojiW ? "[warn]" : "⚠"} ${gate.warning.slice(0, 60)}`);
     const second = extras.join(" · ");
     const maxSecond = 120;
@@ -158,7 +161,10 @@ export default function (pi: ExtensionAPI): void {
   }
 
   function cardStatus(): string {
-    const noEmoji = process.env.PI_NO_EMOJI === "1" || process.env.NO_EMOJI === "1" || process.env.NO_COLOR === "1";
+    const noEmoji =
+      process.env.PI_NO_EMOJI === "1" ||
+      process.env.NO_EMOJI === "1" ||
+      process.env.NO_COLOR === "1";
     const hdr = noEmoji ? "[jev] pi-model (tool, no fallback)" : "JeV pi-model (tool, no fallback)";
     const prov = `${process.env.PI_PROVIDER ?? "pi"}/${process.env.PI_MODEL ?? config.model}`;
     const ph = phaseOf({
@@ -213,23 +219,29 @@ export default function (pi: ExtensionAPI): void {
       lines.push(`  plan: —`);
     }
     if (lastGit?.hash)
-      lines.push(`  git: ${lastGit.hash.slice(0, 7)} · ${lastGit.action ?? "commit"}  (undo: /jev:git revert ${lastGit.hash.slice(0, 7)})`);
+      lines.push(
+        `  git: ${lastGit.hash.slice(0, 7)} · ${lastGit.action ?? "commit"}  (undo: /jev:git revert ${lastGit.hash.slice(0, 7)})`,
+      );
     else lines.push(`  git: —  (no commits yet)`);
     if (lastTelemetry) {
       const hr = cache.getStats().hitRate;
       const st = cache.getStats();
       lines.push(
-        `  cost: ${lastTelemetry.instructionChars}ch instr · ${lastTelemetry.compressedChars}ch compressed · ${lastTelemetry.latencyMs}ms · cached=${lastTelemetry.cached} · hitRate ${(hr * 100).toFixed(0)}% · cache ${st.size} entries`,
+        `  cost: ${lastTelemetry.compressedChars}ch · ${lastTelemetry.latencyMs}ms · cached=${lastTelemetry.cached} · hitRate ${(hr * 100).toFixed(0)}% · cache ${st.size} entries`,
       );
     } else {
       const st = cache.getStats();
-      lines.push(`  cost: —  (cache ${st.size} entries · hitRate ${(st.hitRate * 100).toFixed(0)}%)`);
+      lines.push(
+        `  cost: —  (cache ${st.size} entries · hitRate ${(st.hitRate * 100).toFixed(0)}%)`,
+      );
     }
     lines.push(`  nextAction: ${nextActionHint()}`);
     lines.push(
       `  thresholds: risk ${config.thresholds.risk} · urgent ${config.thresholds.urgent}  (/jev:config to tune)`,
     );
-    lines.push(`  tips: /jev:next /jev:plan /jev:cost /jev:help · /jev:resume · /jev:git · /jev:clear`);
+    lines.push(
+      `  tips: /jev:next /jev:plan /jev:cost /jev:help · /jev:resume · /jev:git · /jev:clear`,
+    );
     if (lastTrivialBypass)
       lines.push(`  note: trivial prompt — calibration bypassed (token saved ~450)`);
     return lines.join("\n");
@@ -247,7 +259,12 @@ export default function (pi: ExtensionAPI): void {
       // once-per-task guard: calibration already done this task — separate calls, do not re-calibrate
       if (lastCalibrateTurn === turnId && lastPolicy) {
         return {
-          content: [{ type: "text", text: `blocked: jev_calibrate already called this task (turn ${turnId}) — proceed to jev_plan if needsPlan>=0.5, do not merge/re-call` }],
+          content: [
+            {
+              type: "text",
+              text: `blocked: jev_calibrate already called this task (turn ${turnId}) — proceed to jev_plan if needsPlan>=0.5, do not merge/re-call`,
+            },
+          ],
           details: {
             error: "already calibrated this task",
             code: "ALREADY_CALIBRATED",
@@ -260,7 +277,12 @@ export default function (pi: ExtensionAPI): void {
       // reject merged payload if sent — enforce separation
       if ((p as unknown as { plan?: unknown }).plan) {
         return {
-          content: [{ type: "text", text: "blocked: merged calibrate+plan not allowed — call jev_calibrate (8 fields only) then jev_plan separately (once per task)" }],
+          content: [
+            {
+              type: "text",
+              text: "blocked: merged calibrate+plan not allowed — call jev_calibrate (8 fields only) then jev_plan separately (once per task)",
+            },
+          ],
           details: {
             error: "merged not allowed",
             code: "MERGED_NOT_ALLOWED",
@@ -287,17 +309,11 @@ export default function (pi: ExtensionAPI): void {
       } else {
         pendingPlanState = null;
       }
-      // telemetry
-      const instrLen = JSON.stringify(p).length;
+      // telemetry — keep only needed
       lastTelemetry = {
-        instructionChars: instrLen,
-        stateChars: p.state.length,
         compressedChars: compressState(p.state).length,
         latencyMs,
-        provider: process.env.PI_PROVIDER,
-        model: process.env.PI_MODEL,
         cached: false,
-        shortTier: false,
         trivialBypass: false,
       };
       append({
@@ -311,7 +327,9 @@ export default function (pi: ExtensionAPI): void {
       });
       const base = `calibrated via:pi-model complexity=${policy.complexity.level} score=${policy.complexity.score.toFixed(2)} urgent=${policy.isUrgent.p.toFixed(2)} needsPlan=${policy.needsPlan.p.toFixed(2)} risk=${risk.pRisk.toFixed(2)}`;
       const needsPlanNow = policy.needsPlan.p >= 0.5 && policy.complexity.level !== "low";
-      const suffix = needsPlanNow ? "\n[JEV plan required next — call jev_plan for this STATE now (separate, once per task)]" : "";
+      const suffix = needsPlanNow
+        ? "\n[JEV plan required next — call jev_plan for this STATE now (separate, once per task)]"
+        : "";
       const nextAct = needsPlanNow ? "call jev_plan" : "proceed";
       return {
         content: [{ type: "text", text: base + suffix }],
@@ -322,7 +340,9 @@ export default function (pi: ExtensionAPI): void {
           plan: null,
           nextAction: nextAct,
           telemetry: lastTelemetry,
-          hint: needsPlanNow ? "Call jev_plan next (separate call, once per task)" : `Next: ${nextAct}`,
+          hint: needsPlanNow
+            ? "Call jev_plan next (separate call, once per task)"
+            : `Next: ${nextAct}`,
         },
       };
     },
@@ -338,7 +358,12 @@ export default function (pi: ExtensionAPI): void {
       const p = params as JevPlanParams;
       if (!lastPolicy)
         return {
-          content: [{ type: "text", text: "blocked: must call jev_calibrate before jev_plan (separate calls, once per task)" }],
+          content: [
+            {
+              type: "text",
+              text: "blocked: must call jev_calibrate before jev_plan (separate calls, once per task)",
+            },
+          ],
           details: {
             error: "calibrate first",
             code: "CALIBRATE_FIRST",
@@ -349,7 +374,12 @@ export default function (pi: ExtensionAPI): void {
         };
       if (lastPlanTurn === turnId && lastPlan) {
         return {
-          content: [{ type: "text", text: `blocked: jev_plan already called this task (turn ${turnId}) — once per task, proceed to execution` }],
+          content: [
+            {
+              type: "text",
+              text: `blocked: jev_plan already called this task (turn ${turnId}) — once per task, proceed to execution`,
+            },
+          ],
           details: {
             error: "already planned this task",
             code: "ALREADY_PLANNED",
@@ -578,14 +608,9 @@ export default function (pi: ExtensionAPI): void {
       lastPolicy = ephemeral;
       lastRisk = { decision: { block: false, pRisk: 0.06, confidence: 0.85, via: "pi-model" } };
       lastTelemetry = {
-        instructionChars: 0,
-        stateChars: prompt.length,
         compressedChars: prompt.length,
         latencyMs: 0,
-        provider: process.env.PI_PROVIDER,
-        model: process.env.PI_MODEL,
         cached: false,
-        shortTier: true,
         trivialBypass: true,
       };
       append({ type: "policy:trivial-bypass", prompt: prompt.slice(0, 120), at: Date.now() });
@@ -629,14 +654,9 @@ export default function (pi: ExtensionAPI): void {
       if (cached.isUrgent.p >= config.thresholds.urgent)
         hints.push(`urgent p=${cached.isUrgent.p.toFixed(2)}`);
       lastTelemetry = {
-        instructionChars: 0,
-        stateChars: rawState.length,
         compressedChars: state.length,
         latencyMs: 0,
-        provider: process.env.PI_PROVIDER,
-        model: process.env.PI_MODEL,
         cached: true,
-        shortTier: false,
         trivialBypass: false,
       };
       if (hints.length)
@@ -652,16 +672,10 @@ export default function (pi: ExtensionAPI): void {
     pendingState = state;
     t0 = Date.now();
     const instr = buildJevInstruction(state, { compressedChars: 1400 });
-    const shortTier = instr.length < 240;
     lastTelemetry = {
-      instructionChars: instr.length,
-      stateChars: rawState.length,
       compressedChars: state.length,
       latencyMs: 0,
-      provider: process.env.PI_PROVIDER,
-      model: process.env.PI_MODEL,
       cached: false,
-      shortTier,
       trivialBypass: false,
     };
     return {
@@ -845,10 +859,10 @@ export default function (pi: ExtensionAPI): void {
     handler: async (_a: string, ctx: unknown) => {
       const st = cache.getStats();
       const tel = lastTelemetry
-        ? `last: ${lastTelemetry.instructionChars}ch instr · ${lastTelemetry.compressedChars}ch state · ${lastTelemetry.latencyMs}ms · cached=${lastTelemetry.cached} · trivialBypass=${lastTelemetry.trivialBypass}`
+        ? `last: ${lastTelemetry.compressedChars}ch · ${lastTelemetry.latencyMs}ms · cached=${lastTelemetry.cached}${lastTelemetry.trivialBypass ? " · bypass" : ""}`
         : "no telemetry yet";
       (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
-        `Jev cost\n  ${tel}\n  cache: ${st.size} entries · hits ${st.hits} misses ${st.misses} · hitRate ${(st.hitRate * 100).toFixed(0)}%  ·  thresholds risk ${config.thresholds.risk} urgent ${config.thresholds.urgent}`,
+        `Jev cost\n  ${tel}\n  cache: ${st.size} entries · hitRate ${(st.hitRate * 100).toFixed(0)}%  ·  thresholds risk ${config.thresholds.risk} urgent ${config.thresholds.urgent}`,
         "info",
       );
     },
@@ -898,7 +912,8 @@ export default function (pi: ExtensionAPI): void {
     },
   });
   pi.registerCommand("jev:git", {
-    description: "Jev git — status/diff/log/commit/revert/init (usage: /jev:git status | diff | log 12 | commit | revert <hash> | init)",
+    description:
+      "Jev git — status/diff/log/commit/revert/init (usage: /jev:git status | diff | log 12 | commit | revert <hash> | init)",
     handler: async (args: string, ctx: unknown) => {
       const a = (args.trim().split(/\s+/)[0] || "status") as JevGitParams["action"];
       const lim = parseInt(args.trim().split(/\s+/)[1] || "12", 10);

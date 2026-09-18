@@ -86,13 +86,8 @@ export interface RiskDecision {
 }
 
 export interface JevTelemetry {
-  instructionChars: number;
-  stateChars: number;
   compressedChars: number;
   latencyMs: number;
-  provider?: string;
-  model?: string;
   cached: boolean;
-  shortTier: boolean;
   trivialBypass: boolean;
 }

@@ -158,7 +158,12 @@ const ACTION_ASCII: Record<string, string> = {
   cext_batch: "[cext]",
 };
 function useEmoji(): boolean {
-  if (process.env.PI_NO_EMOJI === "1" || process.env.NO_EMOJI === "1" || process.env.NO_COLOR === "1") return false;
+  if (
+    process.env.PI_NO_EMOJI === "1" ||
+    process.env.NO_EMOJI === "1" ||
+    process.env.NO_COLOR === "1"
+  )
+    return false;
   return true;
 }
 function riskBadge(risk: number): string {
