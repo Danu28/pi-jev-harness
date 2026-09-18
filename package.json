@@ -1,17 +1,39 @@
 {
   "name": "pi-jev-harness",
-  "version": "0.3.1",
-  "description": "Pure Jev System-One harness for Pi — pi-model tool-based calibrate + plan + git, zero deps, no fallback",
+  "version": "0.4.0",
+  "description": "Pure Jev System-One harness for Pi \u00e2\u20ac\u201d pi-model tool-based calibrate + plan + git, zero deps, no fallback",
   "type": "module",
   "main": "src/index.ts",
-  "files": ["src", "dist", "README.md", "LICENSE", "CHANGELOG.md"],
-  "engines": { "node": ">=18" },
-  "keywords": ["pi", "pi-extension", "pi-package", "jev", "typesafe", "harness", "system-one", "agent"],
+  "files": [
+    "src",
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "pi-package",
+    "jev",
+    "typesafe",
+    "harness",
+    "system-one",
+    "agent"
+  ],
   "license": "MIT",
   "author": "Danu28",
-  "repository": { "type": "git", "url": "https://github.com/Danu28/pi-jev-harness.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Danu28/pi-jev-harness.git"
+  },
   "homepage": "https://github.com/Danu28/pi-jev-harness#readme",
-  "bugs": { "url": "https://github.com/Danu28/pi-jev-harness/issues" },
+  "bugs": {
+    "url": "https://github.com/Danu28/pi-jev-harness/issues"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -30,5 +52,9 @@
     "@typescript-eslint/parser": "^8.8.0",
     "prettier": "^3.3.0"
   },
-  "pi": { "extensions": ["src/index.ts"] }
+  "pi": {
+    "extensions": [
+      "src/index.ts"
+    ]
+  }
 }

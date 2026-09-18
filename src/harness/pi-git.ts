@@ -98,16 +98,17 @@ function divider(n = 52): string {
 }
 
 export function formatStatus(branch: string, porcelain: string): string {
+  const noEmoji = process.env.PI_NO_EMOJI === "1" || process.env.NO_EMOJI === "1";
+  const tree = noEmoji ? "[status]" : "\uD83C\uDF3F";
+  const ok = noEmoji ? "[ok]" : "\u2705";
   if (!porcelain.trim())
-    return `\uD83C\uDF3F Git Status  \u00B7  ${branch || "main"}\n${divider()}\n\u2705 clean \u2014 no changes to commit`;
-  // Do not use porcelain.trim() before split — leading space is significant (unstaged marker)
+    return `${tree} Git Status  \u00B7  ${branch || "main"}\n${divider()}\n${ok} clean \u2014 no changes to commit`;
   const raw = porcelain.split("\n").filter((l) => l.length > 0);
-  // Remove possible empty trailing line but keep leading spaces
   const lines = raw.map((l) => l.replace(/\r$/, ""));
   const pretty = lines.map((l) => {
     const code = l.slice(0, 2);
     const file = l.slice(3);
-    const icon = code.includes("M")
+    const icon = noEmoji ? ` ${code.trim() || "??"}` : code.includes("M")
       ? "\u270F\uFE0F"
       : code.includes("A")
         ? "\u2795"
@@ -118,32 +119,57 @@ export function formatStatus(branch: string, porcelain: string): string {
             : "\u2022";
     return `  ${icon} ${code} ${file}`;
   });
-  return `\uD83C\uDF3F Git Status  \u00B7  ${branch || "detached"}  \u00B7  ${lines.length} changed\n${divider()}\n${pretty.join("\n")}`;
+  return `${tree} Git Status  \u00B7  ${branch || "detached"}  \u00B7  ${lines.length} changed\n${divider()}\n${pretty.join("\n")}`;
 }
 
 export function formatLog(stdout: string): string {
-  if (!stdout.trim()) return `\uD83D\uDCCB Git Log\n${divider()}\n(no commits yet)`;
+  const noEmoji = process.env.PI_NO_EMOJI === "1";
+  const hdr = noEmoji ? "[log] Git Log" : "\uD83D\uDCCB Git Log";
+  if (!stdout.trim()) return `${hdr}\n${divider()}\n(no commits yet)`;
   const lines = stdout.trim().split("\n");
   const pretty = lines.map((l) => {
     const m = l.match(/^(\S+)\s+(.*)$/);
     if (!m) return `  \u2022 ${l}`;
     return `  \u25CF ${m[1].slice(0, 7)}  ${m[2]}`;
   });
-  return `\uD83D\uDCCB Git Log  \u00B7  ${lines.length} commits\n${divider(44)}\n${pretty.join("\n")}`;
+  return `${hdr}  \u00B7  ${lines.length} commits\n${divider(44)}\n${pretty.join("\n")}`;
 }
 
 export function formatDiff(stat: string, diff: string): string {
+  const noEmoji = process.env.PI_NO_EMOJI === "1";
+  const hdr = noEmoji ? "[diff] Git Diff" : "\uD83D\uDD0D Git Diff";
   const s = stat.trim() ? stat.trim() : "(no stat)";
   const d = diff.trim()
     ? diff.slice(0, 4000) + (diff.length > 4000 ? "\n\u2026truncated" : "")
     : "(no diff)";
-  return `\uD83D\uDD0D Git Diff\n${divider()}\n${s}\n\n${d}`;
+  return `${hdr}\n${divider()}\n${s}\n\n${d}`;
 }
 
 export function formatCommit(hash: string, msg: string, files: string): string {
+  const noEmoji = process.env.PI_NO_EMOJI === "1";
+  const ok = noEmoji ? "[ok]" : "\u2705";
+  const pkg = noEmoji ? "[files]" : "\uD83D\uDCE6";
   const short = hash.slice(0, 7) || "new";
   const fileLine = files.trim() ? files.trim().split("\n").slice(0, 10).join(", ") : "all";
-  return `\u2705 Committed  \u00B7  ${short}  \u00B7  ${msg.split("\n")[0]}\n${divider()}\n${msg}\n\n\uD83D\uDCE6 ${fileLine}`;
+  return `${ok} Committed  \u00B7  ${short}  \u00B7  ${msg.split("\n")[0]}\n${divider()}\n${msg}\n\n${pkg} ${fileLine}`;
+}
+
+// Coalesced status parser for CE-02: single exec "git status --porcelain --branch" gives branch in "## " header
+function parsePorcelainBranch(raw: string): { branch: string; porcelain: string } {
+  const lines = raw.split("\n");
+  let branch = "";
+  const por: string[] = [];
+  for (const l of lines) {
+    if (l.startsWith("## ")) {
+      // "## main...origin/main" or "## No commits yet on main"
+      const m = l.match(/##\s+(?:No commits yet on\s+)?(\S+)/);
+      if (m) branch = m[1].split(".")[0];
+      continue;
+    }
+    if (l.trim() === "") continue;
+    por.push(l);
+  }
+  return { branch, porcelain: por.join("\n") };
 }
 
 // ── main handler ─────────────────────────────────────────────────────────
@@ -185,6 +211,13 @@ export async function handleJevGit(
   }
 
   if (action === "status") {
+    // CE-02: coalesce to single exec; fallback to old two-exec if --branch fails
+    const { code, stdout } = await execGit(pi, ["status", "--porcelain", "--branch"]);
+    if (code === 0 && stdout.includes("##")) {
+      const parsed = parsePorcelainBranch(stdout);
+      return { text: formatStatus(parsed.branch, parsed.porcelain), details: { branch: parsed.branch, porcelain: parsed.porcelain } };
+    }
+    // fallback (legacy git)
     const [{ stdout: branchRaw }, { stdout: por }] = await Promise.all([
       execGit(pi, ["branch", "--show-current"]),
       execGit(pi, ["status", "--porcelain"]),
@@ -286,6 +319,14 @@ export async function autoCommitIfDirty(
   }
   const { stdout: por } = await execGit(pi, ["status", "--porcelain"]);
   if (!por.trim()) return { committed: false };
+  // PR-06: only auto-commit if plan done or high complexity; otherwise skip noisy micro-commits
+  const shouldCommit = (() => {
+    if (!ctx.plan) return ctx.policy?.complexity.level === "high";
+    // commit when cursor reached end (task done) or no cursor (legacy plan)
+    if (ctx.plan.cursor !== undefined) return ctx.plan.cursor >= ctx.plan.steps.length;
+    return true;
+  })();
+  if (!shouldCommit) return { committed: false };
   await ensureGitConfig(pi);
   const msg = buildCommitMessage(ctx.state ?? "auto: pi agent work", ctx.policy, ctx.plan);
   await execGit(pi, ["add", "-A"]);

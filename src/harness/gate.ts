@@ -1,9 +1,10 @@
 /**
  * Risk + Plan gate — extracted from index.ts for testability.
- * Pure function + pi wiring split.
+ * Enhanced: family mapping, dependsOn enforcement, typed codes, structured reasons.
  */
 import type { HarnessConfig, PolicyDecision, RiskDecision } from "../types.ts";
 import type { PlanDecision, JevPlanStep } from "./pi-planner.ts";
+import { matchesAction } from "./pi-planner.ts";
 
 export interface GateState {
   policy: PolicyDecision | null;
@@ -19,6 +20,10 @@ export interface GateResult {
   pRisk: number;
   via: string;
   step?: JevPlanStep;
+  code?: "CALIBRATE_FIRST" | "PLAN_PENDING" | "RISK_HIGH" | "NEEDS_HUMAN" | "DEPENDS_NOT_DONE";
+  hint?: string;
+  retryable?: boolean;
+  warning?: string;
 }
 
 export type Phase = "idle" | "awaitingCalibrate" | "awaitingPlan" | "ready";
@@ -36,7 +41,7 @@ export function evaluateGate(
   state: GateState,
   toolName: string,
 ): GateResult {
-  if (toolName === "jev_calibrate" || toolName === "jev_plan" || toolName === "jev_git") {
+  if (toolName === "jev_calibrate" || toolName === "jev_plan" || toolName === "jev_git" || toolName.startsWith("jev_git_")) {
     return { block: false, pRisk: 0, via: "pi-model" };
   }
   if (!state.policy) {
@@ -47,6 +52,9 @@ export function evaluateGate(
           "Jev calibration pending — pi model must call jev_calibrate first (Score/Noul via pi-model).",
         pRisk: 0,
         via: "pi-model",
+        code: "CALIBRATE_FIRST",
+        hint: "Call jev_calibrate with 5 Questions for this STATE. Tip: include plan if needs_plan>=0.5 to save 1 turn.",
+        retryable: true,
       };
     }
     return {
@@ -54,6 +62,9 @@ export function evaluateGate(
       reason: "No Jev calibration — cannot evaluate risk without pi-model",
       pRisk: 0,
       via: "pi-model",
+      code: "CALIBRATE_FIRST",
+      hint: "Call jev_calibrate first.",
+      retryable: true,
     };
   }
   if (
@@ -62,12 +73,15 @@ export function evaluateGate(
     !state.plan &&
     state.pendingPlanState
   ) {
-    if (toolName === "bash" || toolName === "write" || toolName === "edit") {
+    if (toolName === "bash" || toolName === "write" || toolName === "edit" || toolName === "smart_bundle" || toolName === "smart_edit") {
       return {
         block: true,
         reason: "Jev plan pending — pi model must call jev_plan first (System-Two via pi-model).",
         pRisk: state.risk?.decision.pRisk ?? 0,
         via: "pi-model",
+        code: "PLAN_PENDING",
+        hint: "Call jev_plan (or re-call jev_calibrate with plan included) before bash/write/edit.",
+        retryable: true,
       };
     }
   }
@@ -75,20 +89,58 @@ export function evaluateGate(
   let via: string = state.risk?.decision.via ?? "pi-model";
   let reason: string | undefined = state.risk?.decision.reason;
   let step: JevPlanStep | undefined;
+  let warning: string | undefined;
+  let code: GateResult["code"] | undefined;
+  let hint: string | undefined;
 
   if (state.plan) {
-    const found = state.plan.steps.find((s) => s.action === toolName);
+    const found = state.plan.steps.find((s) => matchesAction(s.action, toolName));
     if (found) {
       step = found;
       pRisk = Math.max(pRisk, found.risk);
       via = "pi-model:plan";
-      if (found.risk >= config.thresholds.risk)
+      if (found.risk >= config.thresholds.risk) {
         reason = `plan step ${found.id} pRisk=${found.risk.toFixed(2)} >= ${config.thresholds.risk}`;
-      if (found.needsHuman) reason = `plan step ${found.id} needsHuman — confirm`;
+        code = "RISK_HIGH";
+        hint = `Risk high for ${found.id}. Recalibrate with is_risky<0.6 or confirm via UI.`;
+      }
+      if (found.needsHuman) {
+        reason = `plan step ${found.id} needsHuman — confirm`;
+        code = "NEEDS_HUMAN";
+        hint = `Step ${found.id} needs human confirmation. Use UI confirm or /jev:next.`;
+      }
+      // dependsOn check — warn if dependencies not done (cursor-based)
+      if (found.dependsOn?.length) {
+        const doneIds = new Set(state.plan.done ?? []);
+        const notDone = found.dependsOn.filter(d => !doneIds.has(d));
+        if (notDone.length) {
+          warning = `s:${found.id} depends on ${notDone.join(",")} not yet done — consider running those first`;
+          // do not block, just warn (enforce order gently)
+        }
+      }
+    } else {
+      // tool not in plan but plan exists — check if any step with same family warns about skipping ahead
+      const cursorStep = state.plan.steps[state.plan.cursor ?? 0];
+      if (cursorStep && cursorStep.action !== toolName && !matchesAction(cursorStep.action, toolName)) {
+        // gentle nudge, not block
+        const pending = state.plan.steps.slice(state.plan.cursor ?? 0).map(s=>s.id).join(",");
+        if (state.plan.cursor !== undefined && state.plan.cursor < state.plan.steps.length) {
+          // only warn for write/edit/bash skew
+          if (["bash","write","edit","smart_bundle","smart_edit"].includes(toolName)) {
+            warning = `out-of-order: next planned is ${cursorStep.id} (${cursorStep.action}), pending [${pending}]`;
+          }
+        }
+      }
     }
   }
+  // Also detect any needsHuman step matching this tool even if not primary found
+  const needsHumanStep = state.plan?.steps.find(s => s.needsHuman && matchesAction(s.action, toolName));
   const block =
     pRisk >= config.thresholds.risk ||
-    !!state.plan?.steps.some((s) => s.needsHuman && s.action === toolName);
-  return { block, reason, pRisk, via, step };
+    !!needsHumanStep;
+  if (block && !code) {
+    code = pRisk >= config.thresholds.risk ? "RISK_HIGH" : "NEEDS_HUMAN";
+    hint = hint ?? "Lower is_risky or confirm. Use /jev:status for card.";
+  }
+  return { block, reason, pRisk, via, step, code, hint, retryable: block ? true : undefined, warning };
 }

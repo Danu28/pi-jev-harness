@@ -1,9 +1,11 @@
 /**
  * PI-MODEL Planner as TOOL — 2-Tool Chain (System-Two) companion to pi-classifier.
- * jev_calibrate (System-One) decides IF plan needed; jev_plan decomposes WHAT.
- * Zero deps, via:pi-model, audited. Only invoked when needs_plan >= 0.5.
+ * Enhanced: smart tool actions, cursor/done, family mapping, emoji fallback, batch nudge.
  */
 import type { Via } from "../types.ts";
+
+export const PLAN_ACTIONS = ["read","bash","edit","write","ask-human","smart_read","smart_bundle","smart_edit","fetch","cext_batch"] as const;
+export type PlanAction = typeof PLAN_ACTIONS[number];
 
 export const jevPlanSchema = {
   type: "object",
@@ -26,8 +28,8 @@ export const jevPlanSchema = {
           title: { type: "string", description: "Short step goal" },
           action: {
             type: "string",
-            enum: ["read", "bash", "edit", "write", "ask-human"],
-            description: "Primary tool for step",
+            enum: [...PLAN_ACTIONS],
+            description: "Primary tool for step — prefer smart_bundle when touching ≤8 files",
           },
           risk: { type: "number", minimum: 0, maximum: 1, description: "Per-step is_risky Noul" },
           needsHuman: { type: "boolean", description: "Step needs human confirmation" },
@@ -49,7 +51,7 @@ export const jevPlanSchema = {
 export type JevPlanStep = {
   id: string;
   title: string;
-  action: "read" | "bash" | "edit" | "write" | "ask-human";
+  action: PlanAction;
   risk: number;
   needsHuman?: boolean;
   dependsOn?: string[];
@@ -72,6 +74,28 @@ export interface PlanDecision {
   via: Via;
   latencyMs: number;
   maxRisk: number;
+  cursor: number; // index of next step to execute (0-based)
+  done: string[]; // ids completed
+}
+
+// Tool family mapping for gate (smart_bundle covers read/edit/write families)
+export const TOOL_FAMILY: Record<string, string[]> = {
+  smart_bundle: ["read","edit","write","bash"],
+  smart_read: ["read"],
+  smart_edit: ["edit"],
+  smart_write: ["write"],
+  cext_batch: ["read","edit","write","bash"],
+  fetch: ["read"],
+};
+
+export function matchesAction(planAction: string, toolName: string): boolean {
+  if (planAction === toolName) return true;
+  const fam = TOOL_FAMILY[planAction];
+  if (fam?.includes(toolName)) return true;
+  // reverse: if tool is family and plan is primitive, also match
+  const rev = TOOL_FAMILY[toolName];
+  if (rev?.includes(planAction)) return true;
+  return false;
 }
 
 export function planToDecision(p: JevPlanParams, latencyMs: number): PlanDecision {
@@ -85,6 +109,8 @@ export function planToDecision(p: JevPlanParams, latencyMs: number): PlanDecisio
     via: "pi-model" as Via,
     latencyMs,
     maxRisk,
+    cursor: 0,
+    done: [],
   };
 }
 
@@ -92,17 +118,38 @@ export function buildJevPlanInstruction(
   state: string,
   calibration: { complexity: { level: string; score: number }; needsPlan: { p: number } },
 ): string {
-  return `[JEV plan required — call jev_plan tool now]\nSTATE: ${state.slice(0, 4000)}\nCALIBRATION: complexity=${calibration.complexity.level} score=${calibration.complexity.score.toFixed(2)} needs_plan=${calibration.needsPlan.p.toFixed(2)} via=pi-model\nDecompose into 2-7 sequential steps (id:s1.. title, action:read/bash/edit/write/ask-human, risk 0-1 Noul per step, needsHuman, dependsOn). Order by execution. Last step should be git commit via jev_git (action=commit) with jev message. Call jev_plan with all fields + confidence. Do NOT run bash/write/edit before planning.`;
+  return `[JEV plan required — call jev_plan tool now]\nSTATE: ${state.slice(0, 1400)}\nCALIBRATION: complexity=${calibration.complexity.level} score=${calibration.complexity.score.toFixed(2)} needs_plan=${calibration.needsPlan.p.toFixed(2)} via=pi-model\nDecompose into 2-7 sequential steps (id:s1.. title, action:read/bash/edit/write/ask-human/smart_read/smart_bundle/smart_edit/fetch/cext_batch, risk 0-1 Noul per step, needsHuman, dependsOn). Prefer smart_bundle when touching ≤8 files in same area (1 LLM call vs N). Order by execution. Last step should be git commit via jev_git (action=commit) with jev message. Call jev_plan with all fields + confidence. Do NOT run bash/write/edit before planning.`;
 }
 
 // ── UI formatting ──────────────────────────────────────────────────────────
-const ACTION_ICON: Record<string, string> = {
+export const ACTION_ICON: Record<string, string> = {
   read: "🔍",
   bash: "⚙️",
   edit: "✏️",
   write: "📝",
   "ask-human": "👤",
+  smart_read: "🔍",
+  smart_bundle: "📦",
+  smart_edit: "✏️",
+  fetch: "🌐",
+  cext_batch: "🧩",
 };
+const ACTION_ASCII: Record<string, string> = {
+  read: "[read]",
+  bash: "[bash]",
+  edit: "[edit]",
+  write: "[write]",
+  "ask-human": "[human]",
+  smart_read: "[s-read]",
+  smart_bundle: "[bundle]",
+  smart_edit: "[s-edit]",
+  fetch: "[fetch]",
+  cext_batch: "[cext]",
+};
+function useEmoji(): boolean {
+  if (process.env.PI_NO_EMOJI === "1" || process.env.NO_EMOJI === "1") return false;
+  return true;
+}
 function riskBadge(risk: number): string {
   if (risk >= 0.85) return "🔴 high";
   if (risk >= 0.5) return "🟡 medium";
@@ -110,7 +157,8 @@ function riskBadge(risk: number): string {
   return "🟢 minimal";
 }
 function actionLabel(a: string): string {
-  return `${ACTION_ICON[a] ?? "•"} ${a}`;
+  if (useEmoji()) return `${ACTION_ICON[a] ?? "•"} ${a}`;
+  return `${ACTION_ASCII[a] ?? `[${a}]`} ${a}`;
 }
 function formatSteps(steps: JevPlanStep[], withDeps: boolean): string {
   return steps
@@ -138,4 +186,13 @@ export function formatPlanNotify(decision: PlanDecision): string {
   const lines = formatSteps(decision.steps, false);
   const reasoning = decision.reasoning ? `\n💡 ${decision.reasoning}` : "";
   return `${header}\n${divider}\n${lines}${reasoning}`;
+}
+
+export function formatNextStep(decision: PlanDecision): string {
+  const idx = decision.cursor ?? 0;
+  if (idx >= decision.steps.length) return `✅ Jev plan complete — ${decision.steps.length}/${decision.steps.length} done. Next: jev_git commit`;
+  const s = decision.steps[idx];
+  const deps = s.dependsOn?.length ? ` depends on ${s.dependsOn.join(",")}` : "";
+  const done = decision.done.length ? ` (${decision.done.length}/${decision.steps.length} done)` : "";
+  return `➡️ Next: ${actionLabel(s.action)} ${s.id} — ${s.title}  risk ${s.risk.toFixed(2)}${s.needsHuman ? " needsHuman" : ""}${deps}${done}\n   Run: ${s.action}  ·  /jev:next for details  ·  /jev:status for card`;
 }
