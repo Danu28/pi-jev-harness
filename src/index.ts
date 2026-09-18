@@ -129,8 +129,8 @@ export default function (pi: ExtensionAPI): void {
     });
     if (!lastPolicy) {
       if (lastTrivialBypass)
-        return [`jev: trivial bypass • no calibrate`, `next: ${nextActionHint()}`];
-      return [`jev: ${ph}`, `next: ${nextActionHint()}`];
+        return [`jev: trivial bypass • no calibrate (phase:${ph})`, `next: ${nextActionHint()}`];
+      return [`jev: awaiting jev_calibrate · phase:${ph}`, `next: ${nextActionHint()}`];
     }
     const risk = gate.pRisk.toFixed(2);
     const base = `jev: ${lastPolicy.complexity.level} · risk ${risk} · ${ph}`;
@@ -150,12 +150,15 @@ export default function (pi: ExtensionAPI): void {
     } else {
       extras.push(`via:${gate.via}`);
     }
-    if (gate.warning) extras.push(`⚠ ${gate.warning.slice(0, 60)}`);
-    return [base, extras.join(" · ")];
+    const noEmojiW = process.env.PI_NO_EMOJI === "1" || process.env.NO_EMOJI === "1" || process.env.NO_COLOR === "1";
+    if (gate.warning) extras.push(`${noEmojiW ? "[warn]" : "⚠"} ${gate.warning.slice(0, 60)}`);
+    const second = extras.join(" · ");
+    const maxSecond = 120;
+    return [base, second.length > maxSecond ? second.slice(0, maxSecond - 1) + "…" : second];
   }
 
   function cardStatus(): string {
-    const noEmoji = process.env.PI_NO_EMOJI === "1";
+    const noEmoji = process.env.PI_NO_EMOJI === "1" || process.env.NO_EMOJI === "1" || process.env.NO_COLOR === "1";
     const hdr = noEmoji ? "[jev] pi-model (tool, no fallback)" : "JeV pi-model (tool, no fallback)";
     const prov = `${process.env.PI_PROVIDER ?? "pi"}/${process.env.PI_MODEL ?? config.model}`;
     const ph = phaseOf({
@@ -170,7 +173,7 @@ export default function (pi: ExtensionAPI): void {
     lines.push(`  provider: ${prov}  ·  phase: ${ph}  ·  turn: ${turnId}`);
     if (!lastPolicy) {
       lines.push(
-        `  policy: (none)${lastTrivialBypass ? " — trivial bypass active (no calibrate needed)" : " — awaiting jev_calibrate"}`,
+        `  policy: (none)${lastTrivialBypass ? " — trivial bypass active (no calibrate needed)" : ` — awaiting jev_calibrate (phase: ${ph})`}`,
       );
     } else {
       const c = lastPolicy.complexity;
@@ -193,7 +196,8 @@ export default function (pi: ExtensionAPI): void {
     if (lastPlan) {
       const cur = lastPlan.cursor ?? 0;
       const tot = lastPlan.steps.length;
-      const bar = "▓".repeat(Math.min(cur, tot)) + "░".repeat(Math.max(0, tot - cur));
+      const rawBar = "▓".repeat(Math.min(cur, tot)) + "░".repeat(Math.max(0, tot - cur));
+      const bar = noEmoji ? `[${cur}/${tot}]` : rawBar;
       lines.push(
         `  plan: ${cur}/${tot} ${bar}  maxRisk ${lastPlan.maxRisk.toFixed(2)} via ${lastPlan.via}`,
       );
@@ -209,19 +213,23 @@ export default function (pi: ExtensionAPI): void {
       lines.push(`  plan: —`);
     }
     if (lastGit?.hash)
-      lines.push(`  git: ${lastGit.hash.slice(0, 7)} · ${lastGit.action ?? "commit"}`);
-    else lines.push(`  git: —`);
+      lines.push(`  git: ${lastGit.hash.slice(0, 7)} · ${lastGit.action ?? "commit"}  (undo: /jev:git revert ${lastGit.hash.slice(0, 7)})`);
+    else lines.push(`  git: —  (no commits yet)`);
     if (lastTelemetry) {
       const hr = cache.getStats().hitRate;
+      const st = cache.getStats();
       lines.push(
-        `  cost: ${lastTelemetry.instructionChars}ch instr · ${lastTelemetry.compressedChars}ch compressed · ${lastTelemetry.latencyMs}ms · cached=${lastTelemetry.cached} · hitRate ${(hr * 100).toFixed(0)}%`,
+        `  cost: ${lastTelemetry.instructionChars}ch instr · ${lastTelemetry.compressedChars}ch compressed · ${lastTelemetry.latencyMs}ms · cached=${lastTelemetry.cached} · hitRate ${(hr * 100).toFixed(0)}% · cache ${st.size} entries`,
       );
+    } else {
+      const st = cache.getStats();
+      lines.push(`  cost: —  (cache ${st.size} entries · hitRate ${(st.hitRate * 100).toFixed(0)}%)`);
     }
     lines.push(`  nextAction: ${nextActionHint()}`);
     lines.push(
       `  thresholds: risk ${config.thresholds.risk} · urgent ${config.thresholds.urgent}  (/jev:config to tune)`,
     );
-    lines.push(`  tips: /jev:next /jev:plan /jev:cost /jev:help`);
+    lines.push(`  tips: /jev:next /jev:plan /jev:cost /jev:help · /jev:resume · /jev:git · /jev:clear`);
     if (lastTrivialBypass)
       lines.push(`  note: trivial prompt — calibration bypassed (token saved ~450)`);
     return lines.join("\n");
@@ -526,7 +534,7 @@ export default function (pi: ExtensionAPI): void {
         hadGitCommitThisTurn = true;
         append({ type: "git:auto", hash: res.hash, at: Date.now() });
         (ctx as { ui?: { notify: (m: string, l: string) => void } })?.ui?.notify(
-          `🌿 Jev auto-commit ${res.hash?.slice(0, 7)} — ${res.text?.split("\n")[0]}`,
+          `🌿 Jev auto-commit ${res.hash?.slice(0, 7)} — ${res.text?.split("\n")[0]}  (undo: /jev:git revert ${res.hash?.slice(0, 7)})`,
           "info",
         );
       }
@@ -546,7 +554,7 @@ export default function (pi: ExtensionAPI): void {
       );
       if (res.committed)
         (ctx as { ui?: { notify: (m: string, l: string) => void } })?.ui?.notify(
-          `🌿 Jev shutdown auto-commit ${res.hash?.slice(0, 7)}`,
+          `🌿 Jev shutdown auto-commit ${res.hash?.slice(0, 7)}  (undo: /jev:git revert ${res.hash?.slice(0, 7)})`,
           "info",
         );
     } catch {}
@@ -738,9 +746,11 @@ export default function (pi: ExtensionAPI): void {
       const fullMsg = `${ctxMsg}${msg}${hintLine}${warnLine}\nNext: ${nextActionHint()}`;
       if (!c.hasUI)
         return { block: true, reason: fullMsg, details: blockDetails } as unknown as undefined;
+      const conciseInput = JSON.stringify(input).slice(0, 250);
+      const conciseMsg = fullMsg.length > 400 ? fullMsg.slice(0, 397) + "…" : fullMsg;
       const ok = await c.ui.confirm(
         "Jev pi-model Gate",
-        `${fullMsg}\n\nTool: ${toolName}\nInput: ${JSON.stringify(input).slice(0, 500)}\nVia: ${gate.via} — recalibrate if wrong.`,
+        `${conciseMsg}\n\nTool: ${toolName}\nInput: ${conciseInput}${conciseInput.length >= 250 ? "…" : ""}\nVia: ${gate.via} — recalibrate if wrong.`,
       );
       if (!ok)
         return {
@@ -816,15 +826,16 @@ export default function (pi: ExtensionAPI): void {
     },
   });
   pi.registerCommand("jev:help", {
-    description: "Jev harness help",
+    description: "Jev harness help (all commands & tools)",
     handler: async (_a: string, ctx: unknown) => {
       (ctx as { ui: { notify: (m: string, l: string) => void } }).ui.notify(
         `Jev harness — pi-model tool-based, no fallback\n` +
           `  Calibrates risk per task (5 Questions), plans high-complexity work, gates risky edits, auto-commits.\n` +
-          `  Tools: jev_calibrate, jev_plan (separate, once per task), jev_git(+wrappers)\n` +
-          `  Commands: /jev:status [--json], /jev:plan, /jev:next, /jev:git, /jev:cost, /jev:config, /jev:clear\n` +
-          `  Tips: trivial prompts bypass calibrate (save tokens); prefer smart_bundle for ≤8 files.\n` +
-          `  Docs: docs/DESIGN.md`,
+          `  Tools: jev_calibrate, jev_plan (separate, once per task), jev_git (+wrappers: status/diff/log/commit)\n` +
+          `  Commands: /jev:status [--json], /jev:plan, /jev:next, /jev:help, /jev:cost, /jev:config [risk|urgent], /jev:resume, /jev:git [status|diff|log|commit], /jev:log [n], /jev:commit [msg], /jev:clear [--confirm|--restore]\n` +
+          `  Tips: trivial prompts bypass calibrate (save ~450 tok); prefer smart_bundle for ≤8 files; /jev:status shows card, /jev:cost shows telemetry.\n` +
+          `  Docs: docs/DESIGN.md · README.md\n` +
+          `  Aliases: /jev:log ≡ /jev:git log, /jev:commit ≡ /jev:git commit`,
         "info",
       );
     },
@@ -887,7 +898,7 @@ export default function (pi: ExtensionAPI): void {
     },
   });
   pi.registerCommand("jev:git", {
-    description: "Jev git — status/diff/log (usage: /jev:git status | diff | log 12)",
+    description: "Jev git — status/diff/log/commit/revert/init (usage: /jev:git status | diff | log 12 | commit | revert <hash> | init)",
     handler: async (args: string, ctx: unknown) => {
       const a = (args.trim().split(/\s+/)[0] || "status") as JevGitParams["action"];
       const lim = parseInt(args.trim().split(/\s+/)[1] || "12", 10);
@@ -905,7 +916,7 @@ export default function (pi: ExtensionAPI): void {
     },
   });
   pi.registerCommand("jev:log", {
-    description: "Show git log via jev_git",
+    description: "Show git log (alias — prefer /jev:git log) — via jev_git",
     handler: async (args: string, ctx: unknown) => {
       const lim = parseInt(args.trim() || "12", 10);
       const res = await handleJevGit(
@@ -922,7 +933,7 @@ export default function (pi: ExtensionAPI): void {
     },
   });
   pi.registerCommand("jev:commit", {
-    description: "Commit via jev_git (usage: /jev:commit optional message)",
+    description: "Commit via jev_git (alias — prefer /jev:git commit) (usage: /jev:commit [msg])",
     handler: async (args: string, ctx: unknown) => {
       const res = await handleJevGit(
         pi as unknown as {

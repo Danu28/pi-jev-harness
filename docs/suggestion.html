@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pi-Jev-Harness — Enhancement Suggestions & Implementation Plan</title>
+<meta name="color-scheme" content="dark light">
+<style>
+  :root{
+    --bg:#0B0F1A; --bg2:#111827; --card:#141C2B; --card2:#1A2540;
+    --border:#1E2D4A; --border2:#24365D;
+    --text:#E6EDF7; --muted:#8B9BB8; --dim:#5E718F;
+    --accent:#5B8DEF; --accent2:#7C5CFF; --accent3:#00D4AA;
+    --warn:#F59E0B; --danger:#EF4444; --ok:#10B981;
+    --radius:14px; --radius2:10px; --shadow:0 10px 40px rgba(0,0,0,.45);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --sans: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0; font-family:var(--sans); background:var(--bg); color:var(--text); line-height:1.6}
+  a{color:var(--accent); text-decoration:none}
+  a:hover{text-decoration:underline}
+  /* Top bar */
+  .topbar{position:sticky; top:0; z-index:50; backdrop-filter:blur(12px); background:rgba(11,15,26,.88); border-bottom:1px solid var(--border)}
+  .topbar-inner{max-width:1180px; margin:0 auto; padding:10px 20px; display:flex; gap:16px; align-items:center; justify-content:space-between}
+  .brand{display:flex; gap:10px; align-items:center}
+  .logo{width:32px; height:32px; border-radius:8px; background:linear-gradient(135deg,var(--accent),var(--accent2)); display:grid; place-items:center; font-weight:800; font-size:14px}
+  .brand h1{margin:0; font-size:14px; letter-spacing:.02em}
+  .brand p{margin:0; font-size:11px; color:var(--muted)}
+  .top-actions{display:flex; gap:8px; align-items:center}
+  .pill{font-size:11px; padding:6px 10px; border-radius:999px; border:1px solid var(--border); background:var(--card); color:var(--muted)}
+  .btn{appearance:none; border:1px solid var(--border); background:var(--card2); color:var(--text); padding:8px 12px; border-radius:8px; font-size:12px; cursor:pointer}
+  .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2)); border-color:transparent; color:white; font-weight:600}
+  .btn:hover{filter:brightness(1.07)}
+  /* Hero */
+  .hero{max-width:1180px; margin:0 auto; padding:32px 20px 10px}
+  .hero-grid{display:grid; grid-template-columns:1.35fr .85fr; gap:20px}
+  @media(max-width:900px){.hero-grid{grid-template-columns:1fr}}
+  .hero-card{background:linear-gradient(180deg, rgba(91,141,239,.10), rgba(124,92,255,.06)), var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:22px; box-shadow:var(--shadow)}
+  .kicker{font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); font-weight:700}
+  .hero h2{margin:6px 0 8px; font-size:28px; line-height:1.2; letter-spacing:-.02em}
+  .hero h2 span{background:linear-gradient(135deg,var(--accent),var(--accent3)); -webkit-background-clip:text; -webkit-text-fill-color:transparent}
+  .hero-desc{color:var(--muted); font-size:13.5px; max-width:62ch}
+  .meta{display:flex; flex-wrap:wrap; gap:8px; margin-top:14px}
+  .meta span{font-size:11px; color:var(--dim); border:1px dashed var(--border); padding:5px 8px; border-radius:999px; background:rgba(255,255,255,.02)}
+  .priority-pyramid{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:16px}
+  .pyr-title{font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:10px}
+  .pyr{display:flex; flex-direction:column; gap:8px}
+  .pyr-row{display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; border:1px solid var(--border)}
+  .pyr-row .num{width:26px; height:26px; border-radius:999px; display:grid; place-items:center; font-size:12px; font-weight:800; flex-shrink:0}
+  .pyr-row h4{margin:0; font-size:13px}
+  .pyr-row p{margin:2px 0 0; font-size:11.5px; color:var(--muted)}
+  .r1{background:linear-gradient(135deg, rgba(91,141,239,.18), rgba(91,141,239,.06)); border-color:rgba(91,141,239,.30)} .r1 .num{background:var(--accent); color:white}
+  .r2{background:linear-gradient(135deg, rgba(124,92,255,.16), rgba(124,92,255,.05)); border-color:rgba(124,92,255,.28)} .r2 .num{background:var(--accent2); color:white}
+  .r3{background:linear-gradient(135deg, rgba(0,212,170,.14), rgba(0,212,170,.04)); border-color:rgba(0,212,170,.26)} .r3 .num{background:var(--accent3); color:#04201A}
+  .r4{background:rgba(245,158,11,.10); border-color:rgba(245,158,11,.22)} .r4 .num{background:var(--warn); color:#1A1200}
+  /* Layout */
+  .wrap{max-width:1180px; margin:0 auto; padding:10px 20px 40px}
+  .toc{position:sticky; top:60px; display:flex; gap:8px; flex-wrap:wrap; padding:12px 0; background:linear-gradient(180deg,var(--bg), transparent); z-index:5}
+  .toc a{font-size:12px; padding:7px 10px; border-radius:999px; border:1px solid var(--border); background:var(--card); color:var(--muted)}
+  .toc a:hover{color:var(--text); border-color:var(--border2)}
+  /* Section */
+  section{margin-top:22px}
+  .sec-head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:12px}
+  .sec-head h3{margin:0; font-size:18px; letter-spacing:-.02em}
+  .sec-head .line{flex:1; height:1px; background:linear-gradient(90deg,var(--border),transparent); min-width:80px}
+  .badge{font-size:11px; padding:4px 8px; border-radius:999px; border:1px solid var(--border); background:var(--card2); color:var(--muted)}
+  .card{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:16px; box-shadow:var(--shadow)}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+  .grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px}
+  @media(max-width:900px){.grid3{grid-template-columns:1fr}}
+  /* Algorithm stepper */
+  .stepper{display:grid; grid-template-columns:repeat(5,1fr); gap:10px}
+  @media(max-width:860px){.stepper{grid-template-columns:1fr}}
+  .step{border-radius:12px; padding:14px; border:1px solid var(--border); background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01)), var(--card); position:relative; overflow:hidden}
+  .step::before{content:""; position:absolute; top:0; left:0; right:0; height:3px; background:var(--c)}
+  .step h4{margin:4px 0 6px; font-size:13px}
+  .step p{margin:0; font-size:12px; color:var(--muted)}
+  .step .tag{font-size:10px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; color:var(--c)}
+  /* Suggestion cards */
+  .filters{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px}
+  .fbtn{font-size:12px; padding:7px 12px; border-radius:999px; border:1px solid var(--border); background:var(--card); color:var(--muted); cursor:pointer}
+  .fbtn.active{background:var(--text); color:var(--bg); border-color:var(--text)}
+  .sugs{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+  @media(max-width:940px){.sugs{grid-template-columns:1fr}}
+  .sug{background:var(--card); border:1px solid var(--border); border-radius:14px; overflow:hidden; display:flex; flex-direction:column}
+  .sug-head{padding:14px 14px 10px; display:flex; gap:10px; align-items:flex-start; border-bottom:1px solid var(--border)}
+  .sug-id{font-family:var(--mono); font-size:11px; padding:4px 7px; border-radius:6px; background:var(--bg2); border:1px solid var(--border); color:var(--muted); flex-shrink:0}
+  .sug-head h4{margin:0; font-size:13.5px; line-height:1.3}
+  .sug-head h4 span{color:var(--muted); font-weight:400; font-size:12px}
+  .sug-body{padding:12px 14px; flex:1}
+  .sug-body p{margin:0 0 8px; font-size:12.5px; color:var(--muted)}
+  .kv{display:grid; grid-template-columns:90px 1fr; gap:6px; font-size:11.5px; margin:8px 0}
+  .kv dt{color:var(--dim); font-weight:600}
+  .kv dd{margin:0; color:var(--text)}
+  .kv dd code{font-family:var(--mono); font-size:11px; background:var(--bg2); padding:2px 5px; border-radius:5px; border:1px solid var(--border)}
+  .chips{display:flex; gap:6px; flex-wrap:wrap; margin-top:8px}
+  .chip{font-size:10.5px; padding:4px 7px; border-radius:999px; border:1px solid var(--border); background:rgba(255,255,255,.03); color:var(--muted)}
+  .chip.ok{border-color:rgba(16,185,129,.30); color:#8EF0C8}
+  .chip.warn{border-color:rgba(245,158,11,.32); color:#FFD38A}
+  .chip.cost{border-color:rgba(91,141,239,.30); color:#9FC0FF}
+  .sug-foot{padding:10px 14px; background:var(--bg2); border-top:1px solid var(--border); display:flex; gap:8px; flex-wrap:wrap}
+  .sug-foot button{font-size:11px}
+  details{border:1px solid var(--border); border-radius:10px; background:var(--bg2); padding:10px 12px}
+  details[open]{background:var(--card2)}
+  details summary{cursor:pointer; font-size:12px; font-weight:600; color:var(--text)}
+  details p, details ul{font-size:12px; color:var(--muted)}
+  code.inline{font-family:var(--mono); font-size:11.5px; background:rgba(255,255,255,.06); padding:2px 5px; border-radius:5px; border:1px solid var(--border)}
+  pre{margin:8px 0 0; padding:10px; border-radius:8px; background:#0A0F1E; border:1px solid var(--border); overflow:auto; font-family:var(--mono); font-size:11.5px; line-height:1.5; color:#C7D6F3}
+  /* Roadmap */
+  .phase{border-left:3px solid var(--c); padding:12px 14px; background:var(--card); border-radius:0 12px 12px 0; border-top:1px solid var(--border); border-right:1px solid var(--border); border-bottom:1px solid var(--border)}
+  .phase h4{margin:0 0 4px; font-size:13px}
+  .phase p{margin:0; font-size:12px; color:var(--muted)}
+  .timeline{display:grid; gap:12px}
+  .checklist{list-style:none; padding:0; margin:8px 0 0}
+  .checklist li{font-size:12px; color:var(--muted); padding:4px 0; display:flex; gap:8px}
+  .checklist li::before{content:"☐"; color:var(--dim)}
+  /* Table */
+  table{width:100%; border-collapse:collapse; font-size:12px}
+  th{ text-align:left; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); padding:8px 10px; border-bottom:1px solid var(--border)}
+  td{padding:8px 10px; border-bottom:1px solid rgba(255,255,255,.06); color:var(--muted)}
+  td strong{color:var(--text)}
+  /* Footer */
+  footer{max-width:1180px; margin:20px auto; padding:16px 20px; color:var(--dim); font-size:11.5px; text-align:center; border-top:1px solid var(--border)}
+  @media print{
+    .topbar, .toc, .filters, .btn{display:none !important}
+    body{background:white; color:#111}
+    .card, .sug, .phase, .hero-card{box-shadow:none; border-color:#DDD}
+  }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="logo">JeV</div>
+        <div>
+          <h1>pi-jev-harness <span style="font-weight:400; color:var(--muted)">· v0.3.1 audit</span></h1>
+          <p>Enhancement Report — Agent-friendly · Productive · Cost-efficient · UX-polished</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span class="pill">5-Step Algorithm applied</span>
+        <span class="pill">26 suggestions</span>
+        <button class="btn" onclick="window.print()">Print / PDF</button>
+        <button class="btn primary" onclick="document.getElementById('roadmap').scrollIntoView({behavior:'smooth'})">Jump to plan →</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-grid">
+      <div class="hero-card">
+        <div class="kicker">Suggestion Report · suggestion.html · Not git-tracked</div>
+        <h2>Make the harness <span>disappear for agents</span>, pay only for signal.</h2>
+        <p class="hero-desc">
+          Current harness is <b>correct, pure pi-model, zero-deps</b> — and that purity is its strength. This report applies the 5-Step Algorithm <em>(Question → Delete → Simplify → Accelerate → Automate — never optimize what shouldn't exist)</em> to make it <b>agent-friendly first</b>, then productive, then cheap, then delightful. Every suggestion is mapped to files, effort, token impact, and a guard that prevents re-introducing waste.
+        </p>
+        <div class="meta">
+          <span>📦 Scope: <code class="inline">src/index.ts</code> + <code class="inline">src/harness/*</code> (417 LOC core)</span>
+          <span>🧪 33 tests · 5 suites · 706ms</span>
+          <span>🎯 Priorities: 1 Agent · 2 Productivity · 3 Cost · 4 UX</span>
+          <span>📅 2026-09-18 · pi-jev-harness</span>
+        </div>
+        <div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap">
+          <span class="badge" style="background:rgba(91,141,239,.12); border-color:rgba(91,141,239,.28); color:#9FC0FF">🔷 P1 Agent 8 suggestions</span>
+          <span class="badge" style="background:rgba(124,92,255,.12); border-color:rgba(124,92,255,.28); color:#C4B5FF">🟣 P2 Productivity 6</span>
+          <span class="badge" style="background:rgba(0,212,170,.12); border-color:rgba(0,212,170,.28); color:#8EF0C8">🟢 P3 Cost 6</span>
+          <span class="badge" style="background:rgba(245,158,11,.10); border-color:rgba(245,158,11,.24); color:#FFD38A">🟡 P4 UX 6</span>
+        </div>
+      </div>
+      <div class="priority-pyramid">
+        <div class="pyr-title">Priority order — design north star</div>
+        <div class="pyr">
+          <div class="pyr-row r1"><div class="num">1</div><div><h4>Agent-friendly</h4><p>One-call calibrate+plan, machine-readable outputs, smart_tool awareness, no forced ceremony</p></div></div>
+          <div class="pyr-row r2"><div class="num">2</div><div><h4>High productivity</h4><p>Plan execution state, resume, single-shot batches, persistent cache, fewer round-trips</p></div></div>
+          <div class="pyr-row r3"><div class="num">3</div><div><h4>Cost efficient</h4><p>Trivial-prompt bypass, merged tool calls, compressed state, git exec coalescing, cache semantic dedup</p></div></div>
+          <div class="pyr-row r4"><div class="num">4</div><div><h4>User friendly</h4><p>Human-readable status, progress UI, configurable thresholds without restart, undo-safe clear</p></div></div>
+        </div>
+        <div style="margin-top:12px; padding:10px; border-radius:8px; background:var(--bg2); border:1px solid var(--border); font-size:11.5px; color:var(--muted)">
+          <b style="color:var(--text)">Rule:</b> <em>Never optimize something that shouldn't exist.</em> Steps 1–2 (Question/Delete) remove ceremony before 3–5 add speed/automation.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <nav class="toc">
+      <a href="#audit">Audit</a>
+      <a href="#algorithm">5-Step Algorithm</a>
+      <a href="#p1">P1 Agent</a>
+      <a href="#p2">P2 Productivity</a>
+      <a href="#p3">P3 Cost</a>
+      <a href="#p4">P4 UX</a>
+      <a href="#roadmap">Roadmap</a>
+      <a href="#metrics">Metrics</a>
+      <a href="#risks">Risks</a>
+    </nav>
+
+    <!-- AUDIT -->
+    <section id="audit">
+      <div class="sec-head"><h3>1 · Audit — what's great & what's in the way</h3><div class="line"></div><span class="badge">Read-only: no edits yet</span></div>
+      <div class="grid2">
+        <div class="card">
+          <h4 style="margin:0 0 6px; font-size:13px; color:var(--ok)">✅ Strengths to keep (don't break)</h4>
+          <ul style="margin:6px 0 0 16px; font-size:12.5px; color:var(--muted)">
+            <li><b style="color:var(--text)">Pure pi-model, no fallback</b> — zero deps, no PI_API_BASE/auth.json, no external fetch. Audited via <code class="inline">appendEntry("jev", …)</code>.</li>
+            <li><b style="color:var(--text)">Parallel 5 Questions in 1 tool</b> — <code class="inline">jev_calibrate</code> 8 fields = 1 LLM turn for Score+Noul (matches Jev blog: parallel barely adds cost).</li>
+            <li><b style="color:var(--text)">Gate extracted</b> — <code class="inline">harness/gate.ts:evaluateGate()</code> is pure + testable; 33 tests pass.</li>
+            <li><b style="color:var(--text)">Tool-chain</b> — calibrate → plan → git with auto-commit on <code class="inline">agent_settled</code> + auto-init — great agent ergonomics.</li>
+            <li><b style="color:var(--text)">Cache + phase</b> — <code class="inline">JevCache</code> (TTL 300s, 200 cap) + <code class="inline">phaseOf()</code> idle/awaitingCalibrate/awaitingPlan/ready.</li>
+            <li><b style="color:var(--text)">Zero-deps distribution</b> — <code class="inline">pi: extensions ["src/index.ts"]</code> + <code class="inline">allowImportingTsExtensions</code> is idiomatic pi.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4 style="margin:0 0 6px; font-size:13px; color:var(--warn)">⚠️ Gaps that tax agents / tokens / humans</h4>
+          <ul style="margin:6px 0 0 16px; font-size:12.5px; color:var(--muted)">
+            <li><b style="color:var(--text)">Ceremony tax:</b> every prompt injects calibration instruction even for <code class="inline">read README.md</code> or <code class="inline">hi</code> — LLM pays ~300 in / 150 out tokens for no signal.</li>
+            <li><b style="color:var(--text)">Two-turn chain mandatory:</b> calibrate then plan = 2 LLM tool calls serially even when plan is obvious. No <code class="inline">jev_calibrate+plan</code> batch.</li>
+            <li><b style="color:var(--text)">Planner blind to modern tools:</b> plan <code class="inline">action</code> enum misses <code class="inline">smart_read/smart_bundle/cext_batch/fetch_content</code> — agent must break its own plan to be efficient.</li>
+            <li><b style="color:var(--text)">No execution state:</b> plan has no progress cursor, no done/skip, no resume — agent re-asks or freelances after turn 2.</li>
+            <li><b style="color:var(--text)">Cost-blind widget:</b> shows <code class="inline">policy:high risk:0.80 phase:ready</code> — not actionable; no token/latency budget.</li>
+            <li><b style="color:var(--text)">Git monolith:</b> <code class="inline">jev_git</code> with 6 actions in one schema hurts tool-calling accuracy; <code class="inline">status</code> spawns 2–3 <code class="inline">exec git</code> in parallel.</li>
+            <li><b style="color:var(--text)">UX dumps JSON:</b> <code class="inline">/jev:status</code> prints raw <code class="inline">JSON.stringify(policy, null,2)</code> — wall of text, not a card.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h4 style="margin:0 0 8px; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim)">Architecture at a glance</h4>
+        <div class="grid3">
+          <div>
+            <div style="font-size:11px; font-weight:700; color:var(--muted)">Flow today</div>
+            <pre>before_agent_start
+  → buildJevInstruction(state)  // always
+  → LLM calls jev_calibrate
+  → if needs_plan≥0.5 → buildJevPlanInstruction
+  → LLM calls jev_plan
+  → gate allows bash/write/edit
+  → agent_settled → autoCommitIfDirty</pre>
+          </div>
+          <div>
+            <div style="font-size:11px; font-weight:700; color:var(--muted)">Hot spots (token/latency)</div>
+            <pre>• 300+150 tok per calibrate
+• 400+250 tok per plan
+• trivial prompts = 100% waste
+• 2 serial LLM turns
+• 3 git exec per status
+• cache in-memory only</pre>
+          </div>
+          <div>
+            <div style="font-size:11px; font-weight:700; color:var(--muted)">What “great” looks like</div>
+            <pre>• trivial → 0 tok, 0 turns
+• complex → 1 turn (calibrate+plan)
+• gate knows smart_bundle
+• plan cursor + resume
+• 1 git exec per status
+• persistent semantic cache</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ALGORITHM -->
+    <section id="algorithm">
+      <div class="sec-head"><h3>2 · 5-Step Algorithm — applied to this harness</h3><div class="line"></div><span class="badge">Question → Delete → Simplify → Accelerate → Automate</span></div>
+      <div class="stepper">
+        <div class="step" style="--c:var(--accent)"><div class="tag">Step 1 — Question</div><h4>Challenge every requirement</h4><p>Does every prompt need calibration? Does every complex task need a separate plan turn? Does git need 6 actions in one tool? <b>Ask until the “why” breaks.</b></p></div>
+        <div class="step" style="--c:var(--danger)"><div class="tag">Step 2 — Delete</div><h4>Remove what shouldn't exist</h4><p>Delete trivial-prompt calibration, delete the forced 2nd plan turn (merge when obvious), delete git monolith sprawl, delete JSON-dump status — before optimizing any of it.</p></div>
+        <div class="step" style="--c:var(--accent2)"><div class="tag">Step 3 — Simplify</div><h4>Optimize what remains</h4><p>One cohort of smart tools in plan enum, one git exec per status, one status card, one cache key strategy, one threshold config path.</p></div>
+        <div class="step" style="--c:var(--accent3)"><div class="tag">Step 4 — Accelerate</div><h4>Make it faster</h4><p>Coalesce calibrate+plan in one LLM turn, cache semantically (hash, not just slice), compress state, parallelize nothing the LLM must do serially.</p></div>
+        <div class="step" style="--c:var(--warn)"><div class="tag">Step 5 — Automate</div><h4>Automate only after above</h4><p>Plan cursor auto-advances, auto-commit squashes, widget auto-shows next step, telemetry auto-records — no automation of ceremony we just deleted.</p></div>
+      </div>
+      <details style="margin-top:12px">
+        <summary>How each suggestion maps to the 5 steps (traceability)</summary>
+        <p>Every suggestion card below carries a <code class="inline">5-Step</code> chip: <b>Q</b>uestion / <b>D</b>elete / <b>S</b>implify / <b>A</b>ccelerate / <b>Au</b>tomate. Rule enforced: no card is “Au” without passing Q→D→S→A. Example: <em>“Merged jev_calibrate+plan”</em> is Q (do we need 2 turns?) → D (delete mandatory separation) → S (one schema) → A (1 LLM turn saved) → Au (auto-advance cursor).</p>
+      </details>
+    </section>
+
+    <!-- P1 -->
+    <section id="p1">
+      <div class="sec-head"><h3>P1 · Agent-friendly</h3><div class="line"></div><span class="badge">8 suggestions — priority 1</span></div>
+      <div class="filters" data-filter="p1">
+        <button class="fbtn active" data-f="all">All</button>
+        <button class="fbtn" data-f="Q">Question</button>
+        <button class="fbtn" data-f="D">Delete</button>
+        <button class="fbtn" data-f="S">Simplify</button>
+        <button class="fbtn" data-f="A">Accelerate</button>
+        <button class="fbtn" data-f="Au">Automate</button>
+      </div>
+      <div class="sugs" id="sugs-p1">
+        <!-- AF1 -->
+        <article class="sug" data-tags="Q D">
+          <div class="sug-head"><span class="sug-id">AF-01</span><h4>Trivial-prompt bypass — delete calibration that shouldn't exist <span>· Q → D</span></h4></div>
+          <div class="sug-body">
+            <p><b>Problem:</b> <code class="inline">before_agent_start</code> injects <code class="inline">buildJevInstruction</code> for <em>every</em> prompt, even <code class="inline">read foo</code>, <code class="inline">ls</code>, <code class="inline">hi</code>. LLM forced to emit JSON for zero-risk turns — wasted tokens + latency, and teaches agent to ignore the harness.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Add <code class="inline">isTrivialPrompt(prompt)</code> gate: if prompt length &lt; 60 or matches <code class="inline">^(read|list|show|cat|ls|hi|help)\b</code> and no write intent, <b>skip calibration entirely</b> and set <code class="inline">lastPolicy=low, risk≈0</code> ephemeral (not cached). Only complex prompts trigger tool call.</dd>
+            <dt>Files</dt><dd><code class="inline">src/index.ts: before_agent_start</code> + new <code class="inline">src/harness/trivial.ts</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day · 1 test file</dd>
+            <dt>Token win</dt><dd><b>~450 tok saved per trivial turn</b> (100% of calibrate+plan), × ~40% of turns in practice</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: Q→D</span><span class="chip cost">💰 -40% avg token</span><span class="chip ok">Agent: no ceremony</span><span class="chip">Rule: never optimize trivial calibrate — delete it</span></div>
+            <details><summary>Implementation sketch</summary><pre>export function isTrivialPrompt(p:string){
+  const s=p.trim().toLowerCase();
+  if(s.length<40) return s.split(/\s+/).length<6;
+  return /^(read|list|show|cat|ls|hi|help|status)\b/.test(s)
+      && !/(write|edit|delete|deploy|migrate|refactor)/.test(s);
+}
+// in before_agent_start: if(isTrivial(p)) return;
+// ephemeral policy: {complexity:{level:"low",score:0.12}, needsPlan:{p:0.05}}</pre></details>
+          </div>
+          <div class="sug-foot"><button class="btn" onclick="navigator.clipboard.writeText('AF-01 trivial bypass')">Copy ID</button><span class="pill" style="font-size:11px">Priority 1 · Delete</span></div>
+        </article>
+        <!-- AF2 -->
+        <article class="sug" data-tags="Q D S A">
+          <div class="sug-head"><span class="sug-id">AF-02</span><h4>Merged calibrate+plan turn — one LLM call when obvious <span>· Q→D→S→A</span></h4></div>
+          <div class="sug-body">
+            <p><b>Problem:</b> Complex task = 2 serial tool calls (calibrate then plan). That's 2 LLM generations (~800 tok + 2× latency). When <code class="inline">complexity=high</code> is obvious from prompt, separation is pure overhead.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Add <code class="inline">jev_calibrate</code> optional field <code class="inline">plan?: JevPlanParams</code> (or new tool <code class="inline">jev_calibrate_and_plan</code> that reuses same schema). If agent includes <code class="inline">plan</code> when <code class="inline">needs_plan≥0.5</code>, skip the 2nd injection. Harness accepts either path; gate treats merged plan as valid. Saves <b>1 LLM turn</b>.</dd>
+            <dt>Files</dt><dd><code class="inline">src/harness/pi-classifier.ts</code>, <code class="inline">src/harness/pi-planner.ts</code>, <code class="inline">src/index.ts</code></dd>
+            <dt>Effort</dt><dd>M · 1 day · prompt-engineer instruction wording</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: Q→D→S→A</span><span class="chip cost">💰 -1 LLM turn (-~45% latency)</span><span class="chip ok">Agent: fewer round-trips</span></div>
+            <details><summary>Schema delta</summary><pre>jevCalibrateSchema.properties.plan = {
+  type:"object", // JevPlanParams subset, optional
+  description:"If needs_plan≥0.5, include decomposition here to save 1 turn"
+}
+// instruction adds:
+"Tip: if needs_plan≥0.5 and decomposition is obvious,
+ include plan.steps in SAME jev_calibrate call."</pre></details>
+          </div>
+          <div class="sug-foot"><button class="btn" onclick="navigator.clipboard.writeText('AF-02 merged turn')">Copy ID</button><span class="pill">Saves 1 turn</span></div>
+        </article>
+        <!-- AF3 -->
+        <article class="sug" data-tags="Q S">
+          <div class="sug-head"><span class="sug-id">AF-03</span><h4>Smart-tools aware plan actions <span>· Q→S</span></h4></div>
+          <div class="sug-body">
+            <p><b>Problem:</b> Plan <code class="inline">action</code> enum is <code class="inline">read|bash|edit|write|ask-human</code> — but high-productivity agents use <code class="inline">smart_read/smart_write/smart_bundle/smart_edit/cext_batch/fetch_content</code>. Planner forces agent to map efficient tools to legacy actions, breaking gate accuracy.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Extend enum: <code class="inline">smart_read | smart_bundle | smart_edit | fetch | cext_batch | ask-human</code>. Gate maps <code class="inline">smart_bundle → {read,edit,write}</code> family so one banner step covers the bundled call. Add <code class="inline">toolFamily()</code> helper.</dd>
+            <dt>Files</dt><dd><code class="inline">src/harness/pi-planner.ts</code>, <code class="inline">src/harness/gate.ts</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: Q→S</span><span class="chip ok">Agent: plan matches reality</span><span class="chip">Gate family mapping</span></div>
+            <details><summary>Gate mapping</summary><pre>const FAMILY: Record&lt;string,string[]&gt; = {
+  smart_bundle:["read","edit","write","bash"],
+  smart_read:["read"], smart_edit:["edit"],
+  cext_batch:["read","edit","write"],
+};
+function matches(planAction:string, toolName:string){
+  return planAction===toolName || (FAMILY[planAction]?.includes(toolName));
+}</pre></details>
+          </div>
+          <div class="sug-foot"><button class="btn">Copy ID</button><span class="pill">Productivity unblock</span></div>
+        </article>
+        <!-- AF4 -->
+        <article class="sug" data-tags="S Au">
+          <div class="sug-head"><span class="sug-id">AF-04</span><h4>Plan execution cursor + <code class="inline">/jev:next</code> <span>· S→Au</span></h4></div>
+          <div class="sug-body">
+            <p><b>Problem:</b> Plan is a static list — no cursor, no “what’s next?”, no done/skip. Agent finishes <code class="inline">s1</code> and freelances; harness can’t nudge or block out-of-order edits.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Extend <code class="inline">PlanDecision</code> with <code class="inline">cursor:number + done:Set&lt;string&gt;</code>. Harness advances cursor on matching <code class="inline">tool_call</code>. New command <code class="inline">/jev:next</code> prints <b>single next step card</b> + `hint: run …`. Gate optionally warns (not blocks) if agent skips ahead.</dd>
+            <dt>Files</dt><dd><code class="inline">src/harness/pi-planner.ts</code>, <code class="inline">src/index.ts</code></dd>
+            <dt>Effort</dt><dd>M · 1 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S→Au</span><span class="chip ok">Agent: guided execution</span><span class="chip">Cursor state</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">/jev:next · cursor</span></div>
+        </article>
+        <!-- AF5 -->
+        <article class="sug" data-tags="S">
+          <div class="sug-head"><span class="sug-id">AF-05</span><h4>Split <code class="inline">jev_git</code> monolith — or at least typed sub-tools <span>· S</span></h4></div>
+          <div class="sug-body">
+            <p><b>Problem:</b> One tool with 6 actions hurts LLM tool-calling precision (wrong enum, missing hash). Git is orthogonal to Jev calibration — overloading one schema adds cognitive load.</p>
+            <dl class="kv"><dt>Proposal (simplify)</dt><dd><b>Option A (preferred, simplify):</b> keep one tool but expose <code class="inline">jev_git_status / jev_git_commit / jev_git_diff</code> as lightweight wrappers that delegate to same handler — LLM picks the right verb, harness stays DRY. <b>Option B:</b> keep monolith but add per-action required fields validation with friendly errors.</dd>
+            <dt>Files</dt><dd><code class="inline">src/harness/pi-git.ts</code>, <code class="inline">src/index.ts</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S</span><span class="chip ok">LLM accuracy ↑</span><span class="chip">Rule: don't add tools that shouldn't exist — A keeps 1 impl</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Simplify, not proliferate</span></div>
+        </article>
+        <!-- AF6 -->
+        <article class="sug" data-tags="S Au">
+          <div class="sug-head"><span class="sug-id">AF-06</span><h4>Machine-readable outputs with <code class="inline">details</code> contract <span>· S→Au</span></h4></div>
+          <div class="sug-body">
+            <p><b>Problem:</b> <code class="inline">jev_calibrate</code> returns a pretty text string — agent must parse <code class="inline">risk=0.80</code> out of prose. Not agent-friendly.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Guarantee structured <code class="inline">details:{policy,risk,plan,cursor,nextAction}</code> on every tool return (already partially there) and document it in <code class="inline">description</code>. Add <code class="inline">nextAction: "call jev_plan"|"run read"|"commit"</code> hint so agent never guesses.</dd>
+            <dt>Files</dt><dd><code class="inline">src/index.ts: registerTool execute returns</code></dd>
+            <dt>Effort</dt><dd>XS · 0.25 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S→Au</span><span class="chip cost">Parse cost → 0</span><span class="chip ok">Deterministic agent</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Contract > prose</span></div>
+        </article>
+        <!-- AF7 -->
+        <article class="sug" data-tags="Q D">
+          <div class="sug-head"><span class="sug-id">AF-07</span><h4>Idempotent calibration — don't re-inject if already calibrated this turn <span>· Q→D</span></h4></div>
+          <div class="sug-body">
+            <p><b>Problem:</b> If agent calls <code class="inline">read</code> then <code class="inline">edit</code> in same agent turn, harness already has <code class="inline">lastPolicy</code> but <code class="inline">before_agent_start</code> may still inject a 2nd instruction on next user prompt that is continuation — duplicate ceremony.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Track <code class="inline">turnId</code>; if <code class="inline">lastPolicy</code> exists and state is continuation (same prefix), reuse without re-injection. Only recalibrate on new intent (prompt embedding drift or explicit <code class="inline">/jev:clear</code>).</dd>
+            <dt>Files</dt><dd><code class="inline">src/index.ts</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: Q→D</span><span class="chip cost">Avoids duplicate calibrate</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Idempotency</span></div>
+        </article>
+        <!-- AF8 -->
+        <article class="sug" data-tags="S Au">
+          <div class="sug-head"><span class="sug-id">AF-08</span><h4>Typed error + retry hints — never leave agent guessing <span>· S→Au</span></h4></div>
+          <div class="sug-body">
+            <p><b>Problem:</b> Gate blocks with <code class="inline">Blocked by pi-model Jev gate pRisk=0.90</code> — no hint what to do (recalibrate with lower risk? confirm? change plan step?).</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Return structured block: <code class="inline">{code:"PLAN_PENDING"|"RISK_HIGH"|"CALIBRATE_FIRST", hint:"call jev_plan with revised risk 0.6", retryable:true}</code> in <code class="inline">details</code>. Human confirm path auto-retries with <code class="inline">is_risky:0.45</code> suggestion.</dd>
+            <dt>Files</dt><dd><code class="inline">src/harness/gate.ts</code>, <code class="inline">src/index.ts: tool_call</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S→Au</span><span class="chip ok">Self-correcting loop</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Retryable errors</span></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- P2 -->
+    <section id="p2">
+      <div class="sec-head"><h3>P2 · High productivity</h3><div class="line"></div><span class="badge">6 suggestions</span></div>
+      <div class="sugs">
+        <article class="sug" data-tags="S A">
+          <div class="sug-head"><span class="sug-id">PR-01</span><h4>Persistent cache — survive restarts, share across sessions <span>· S→A</span></h4></div>
+          <div class="sug-body">
+            <p>Memory-only <code class="inline">JevCache</code> loses calibration on restart. Re-calibrating same prompt next day wastes tokens.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Persist cache to <code class="inline">.pi/jev-cache.json</code> (or <code class="inline">pi.cache</code> API if available) with same TTL. On <code class="inline">session_start</code>, hydrate. Add <code class="inline">/jev:cache stats</code> showing hit rate.</dd>
+            <dt>Files</dt><dd><code class="inline">src/harness/cache.ts</code>, <code class="inline">src/index.ts</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S→A</span><span class="chip cost">Cache hit → 0 tok</span><span class="chip ok">Productivity ↑</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Hit rate KPI</span></div>
+        </article>
+        <article class="sug" data-tags="Q S">
+          <div class="sug-head"><span class="sug-id">PR-02</span><h4>Semantic cache key — hash, not slice <span>· Q→S</span></h4></div>
+          <div class="sug-body">
+            <p>Cache key is <code class="inline">state.slice(0,2000)</code> — two prompts differing only after char 2000 collide; two prompts with same intent but different phrasing miss. Both waste or corrupt.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Key = <code class="inline">sha256(normalize(state))</code> where <code class="inline">normalize = lowercase + trim + collapse whitespace + sort file lists</code>. Keep LRU 200, but add semantic secondary key: if normalized prompt overlaps ≥90% tokens, reuse with warning.</dd>
+            <dt>Files</dt><dd><code class="inline">src/harness/cache.ts</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: Q→S</span><span class="chip">No collisions</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Hash key</span></div>
+        </article>
+        <article class="sug" data-tags="S Au">
+          <div class="sug-head"><span class="sug-id">PR-03</span><h4>Batch-first guidance — plan should recommend <code class="inline">smart_bundle</code> <span>· S→Au</span></h4></div>
+          <div class="sug-body">
+            <p>Agent productivity hinges on <code class="inline">smart_bundle</code> (grep+read+edit in 1 LLM call = 3 turns saved). Current harness doesn't nudge toward it.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>In <code class="inline">buildJevPlanInstruction</code>, add: <em>“Prefer smart_bundle over serial read→edit when touching ≤8 files in same area.”</em> Planner example steps should use <code class="inline">smart_bundle</code> action. Gate already maps family (AF-03).</dd>
+            <dt>Files</dt><dd><code class="inline">src/harness/pi-planner.ts</code></dd>
+            <dt>Effort</dt><dd>XS · 0.25 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S→Au</span><span class="chip cost">Saves 2–3 turns per task</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Batch nudge</span></div>
+        </article>
+        <article class="sug" data-tags="A Au">
+          <div class="sug-head"><span class="sug-id">PR-04</span><h4>Resume & checkpoint — survive crash / context loss <span>· A→Au</span></h4></div>
+          <div class="sug-body">
+            <p>Long tasks lose cursor on crash. Re-planning from scratch wastes prior work.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Persist <code class="inline">PlanDecision + cursor + done</code> to cache file. New command <code class="inline">/jev:resume</code> reloads and prints <code class="inline">Resuming s3/5 — next: edit harness/gate.ts</code>. Auto-commit remains checkpoint.</dd>
+            <dt>Files</dt><dd><code class="inline">src/harness/pi-planner.ts</code>, <code class="inline">src/index.ts</code></dd>
+            <dt>Effort</dt><dd>M · 1 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: A→Au</span><span class="chip ok">No re-work</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Checkpoint</span></div>
+        </article>
+        <article class="sug" data-tags="S">
+          <div class="sug-head"><span class="sug-id">PR-05</span><h4>Plan step dependsOn actually enforced <span>· S</span></h4></div>
+          <div class="sug-body">
+            <p><code class="inline">dependsOn</code> is stored but never checked — gate allows <code class="inline">s3</code> before <code class="inline">s1</code>.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Gate warns if <code class="inline">dependsOn</code> not yet done: <code class="inline">{block:false, warning:"s3 depends on s1 not done"}</code>. Cursor advances only when dependencies satisfied.</dd>
+            <dt>Files</dt><dd><code class="inline">src/harness/gate.ts</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S</span><span class="chip ok">Order correctness</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">DAG guard</span></div>
+        </article>
+        <article class="sug" data-tags="Q D">
+          <div class="sug-head"><span class="sug-id">PR-06</span><h4>Delete auto-commit noise — squash or opt-in <span>· Q→D</span></h4></div>
+          <div class="sug-body">
+            <p>Auto-commit on every <code class="inline">agent_settled</code> creates micro-commits (“auto: pi agent work”) even for read-only sessions with stray formatting changes — git log noise.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Ask: does every settled turn deserve a commit? Delete unconditional auto-commit. Replace with: commit only if <code class="inline">plan.cursor === plan.steps.length</code> (task actually done) or if <code class="inline">lastPolicy.complexity=high</code>. Add <code class="inline">/jev:commit --squash</code> to combine prior auto-commits.</dd>
+            <dt>Files</dt><dd><code class="inline">src/index.ts: agent_settled</code>, <code class="inline">src/harness/pi-git.ts</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: Q→D</span><span class="chip">Clean git log</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Question first</span></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- P3 -->
+    <section id="p3">
+      <div class="sec-head"><h3>P3 · Cost efficient</h3><div class="line"></div><span class="badge">6 suggestions — tokens & exec</span></div>
+      <div class="sugs">
+        <article class="sug" data-tags="Q D">
+          <div class="sug-head"><span class="sug-id">CE-01</span><h4>Compress state before LLM — hash long prompts <span>· Q→D</span></h4></div>
+          <div class="sug-body">
+            <p>State is <code class="inline">prompt.slice(0,4000)</code> verbatim — includes stack traces, file dumps, repeated paths. LLM reads boilerplate for tokens.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Add <code class="inline">compressState(state)</code>: strip code fences tails &gt;800 chars → <code class="inline">…[truncated 2.1k]</code>, dedup repeated file paths, keep first/last 600 chars + middle hash. Target ≤1200 chars instruction. Saves ~60% input tok on large prompts.</dd>
+            <dt>Files</dt><dd><code class="inline">src/jev-client.ts</code>, <code class="inline">src/harness/pi-classifier.ts</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: Q→D</span><span class="chip cost">💰 -60% input tok on large states</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">State compression</span></div>
+        </article>
+        <article class="sug" data-tags="S A">
+          <div class="sug-head"><span class="sug-id">CE-02</span><h4>Coalesce git exec — 1 process per status <span>· S→A</span></h4></div>
+          <div class="sug-body">
+            <p><code class="inline">handleJevGit(status)</code> does <code class="inline">Promise.all([branch, porcelain])</code> + fallback <code class="inline">rev-parse</code> = 2–3 spawns. Each spawn is latency + process cost.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Single exec: <code class="inline">git status --porcelain --branch</code> gives branch + porcelain in one call. Diff: <code class="inline">git diff --stat</code> already sufficient for summary — defer full diff until user asks.</dd>
+            <dt>Files</dt><dd><code class="inline">src/harness/pi-git.ts</code></dd>
+            <dt>Effort</dt><dd>S · 0.25 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S→A</span><span class="chip cost">-66% git spawns</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Exec coalesce</span></div>
+        </article>
+        <article class="sug" data-tags="S">
+          <div class="sug-head"><span class="sug-id">CE-03</span><h4>Tunable thresholds via command — no restart penalty <span>· S</span></h4></div>
+          <div class="sug-body">
+            <p>Thresholds are env-only (<code class="inline">JEV_MODEL</code>). Tuning <code class="inline">risk 0.85→0.75</code> requires restart — friction that keeps wrong threshold live for whole session.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Command <code class="inline">/jev:config risk 0.80 urgent 0.85</code> mutates in-memory <code class="inline">config.thresholds</code> and persists to <code class="inline">.pi/jev.json</code>. Show live cost estimate: <code class="inline">lower risk → more confirms (cost↑ but safety↑)</code>.</dd>
+            <dt>Files</dt><dd><code class="inline">src/index.ts</code>, <code class="inline">src/harness/config.ts</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S</span><span class="chip">No restart</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">/jev:config</span></div>
+        </article>
+        <article class="sug" data-tags="A">
+          <div class="sug-head"><span class="sug-id">CE-04</span><h4>Latency-budgeted instruction — short instruction for low-risk <span>· A</span></h4></div>
+          <div class="sug-body">
+            <p>Instruction is same length for <code class="inline">risk=0.1</code> and <code class="inline">risk=0.9</code>. Low-risk tasks don't need verbose Jev exposition.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Two instruction tiers: <b>short</b> (~80 tok): <code class="inline">STATE:… Call jev_calibrate {5 fields}</code> vs <b>full</b> (~220 tok) with examples. Pick short when state &lt; 800 chars and prior hit was low-risk.</dd>
+            <dt>Files</dt><dd><code class="inline">src/harness/pi-classifier.ts: buildJevInstruction</code></dd>
+            <dt>Effort</dt><dd>XS · 0.25 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: A</span><span class="chip cost">💰 -60% instruction tok on simple tasks</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Tiered prompt</span></div>
+        </article>
+        <article class="sug" data-tags="S Au">
+          <div class="sug-head"><span class="sug-id">CE-05</span><h4>Token telemetry in <code class="inline">appendEntry</code> + widget <span>· S→Au</span></h4></div>
+          <div class="sug-body">
+            <p>No visibility into harness token cost — can't optimize what you don't measure.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Record <code class="inline">{instructionChars, latencyMs, provider, model, cached}</code> per calibration. Widget shows <code class="inline">jev: high • 1.2k tok • 420ms • 62% cache hit</code> on demand (compact, not always). Add <code class="inline">/jev:cost</code> summary.</dd>
+            <dt>Files</dt><dd><code class="inline">src/index.ts</code>, <code class="inline">src/harness/cache.ts</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S→Au</span><span class="chip cost">Measure → save</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Telemetry</span></div>
+        </article>
+        <article class="sug" data-tags="Q D">
+          <div class="sug-head"><span class="sug-id">CE-06</span><h4>Delete redundant widget updates on blocked tools <span>· Q→D</span></h4></div>
+          <div class="sug-body">
+            <p>Every tool_call updates widget — even blocked ones that never run. UI churn + wasted <code class="inline">setWidget</code> calls.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Only update widget on <code class="inline">phase</code> change or every 3rd tool call. Debounce 300ms.</dd>
+            <dt>Files</dt><dd><code class="inline">src/index.ts: tool_call</code></dd>
+            <dt>Effort</dt><dd>XS · 0.25 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: Q→D</span><span class="chip">Less UI spam</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Debounce</span></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- P4 -->
+    <section id="p4">
+      <div class="sec-head"><h3>P4 · User friendly</h3><div class="line"></div><span class="badge">6 suggestions — humane UX</span></div>
+      <div class="sugs">
+        <article class="sug" data-tags="S">
+          <div class="sug-head"><span class="sug-id">UX-01</span><h4>Card-based <code class="inline">/jev:status</code> — no JSON wall <span>· S</span></h4></div>
+          <div class="sug-body">
+            <p>Current <code class="inline">/jev:status</code> dumps <code class="inline">JSON.stringify(policy,null,2)</code> — 60 lines of nested JSON unreadable in TUI.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Reuse <code class="inline">formatPlanDisplay</code>-style cards: show one-line policy (<code class="inline">🟢 low score 0.34 via pi-model • risk 0.12</code>), plan progress (<code class="inline">2/5 done ▓▓░░░</code>), git (<code class="inline">branch main • 3 changed</code>). Keep <code class="inline">--json</code> flag for machine.</dd>
+            <dt>Files</dt><dd><code class="inline">src/index.ts: jev:status handler</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S</span><span class="chip ok">Scannable</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Card UI</span></div>
+        </article>
+        <article class="sug" data-tags="S">
+          <div class="sug-head"><span class="sug-id">UX-02</span><h4>Human confirm dialog shows plan context <span>· S</span></h4></div>
+          <div class="sug-body">
+            <p>Risk gate <code class="inline">ui.confirm("Jev pi-model Gate", msg)</code> shows tool input but not which plan step it's on or why risk is high.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Include: <code class="inline">Step s3/5: "edit gate.ts" — risk 0.88 (threshold 0.85) → needs human because modifies gate logic</code> + <code class="inline">Proceed / Recalibrate / Skip step</code> actions.</dd>
+            <dt>Files</dt><dd><code class="inline">src/index.ts: tool_call confirm</code></dd>
+            <dt>Effort</dt><dd>S · 0.5 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S</span><span class="chip ok">Informed consent</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Contextual confirm</span></div>
+        </article>
+        <article class="sug" data-tags="S Au">
+          <div class="sug-head"><span class="sug-id">UX-03</span><h4>Widget becomes actionable — phase + next step <span>· S→Au</span></h4></div>
+          <div class="sug-body">
+            <p>Widget: <code class="inline">policy:high via=pi-model risk:0.80 via=pi-model:plan phase:ready</code> — jargon, no action.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Widget lines: <code class="inline">jev: high · s2/5 edit gate.ts · git:abc1234</code> and when awaiting plan: <code class="inline">jev: awaiting plan → call jev_plan (1 turn)</code>. One line, one action.</dd>
+            <dt>Files</dt><dd><code class="inline">src/index.ts: tool_call setWidget</code></dd>
+            <dt>Effort</dt><dd>S · 0.25 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S→Au</span><span class="chip ok">Actionable</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Widget polish</span></div>
+        </article>
+        <article class="sug" data-tags="S">
+          <div class="sug-head"><span class="sug-id">UX-04</span><h4>Safe <code class="inline">/jev:clear</code> with undo — confirm + restore <span>· S</span></h4></div>
+          <div class="sug-body">
+            <p><code class="inline">/jev:clear</code> nukes cache + policy + plan + git ref with no undo. Accidental clear loses cursor.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Require <code class="inline">/jev:clear --confirm</code> and snapshot to <code class="inline">.pi/jev-clear-backup.json</code>. Add <code class="inline">/jev:restore</code>.</dd>
+            <dt>Files</dt><dd><code class="inline">src/index.ts</code></dd>
+            <dt>Effort</dt><dd>XS · 0.25 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S</span><span class="chip">Undo-safe</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Safety</span></div>
+        </article>
+        <article class="sug" data-tags="S Au">
+          <div class="sug-head"><span class="sug-id">UX-05</span><h4>Onboarding <code class="inline">/jev:help</code> + session_start hint <span>· S→Au</span></h4></div>
+          <div class="sug-body">
+            <p>New user sees <code class="inline">jev:pi-model provider/model</code> in status bar with no clue what Jev does.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Add <code class="inline">/jev:help</code> listing commands + one-liner: <em>“Jev calibrates risk per task, plans high-complexity work, gates risky edits, auto-commits.”</em> Show hint once per workspace on first <code class="inline">session_start</code>: <code class="inline">Try /jev:status · docs: DESIGN.md</code>.</dd>
+            <dt>Files</dt><dd><code class="inline">src/index.ts</code></dd>
+            <dt>Effort</dt><dd>XS · 0.25 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: S→Au</span><span class="chip ok">Onboarding</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">Help</span></div>
+        </article>
+        <article class="sug" data-tags="A">
+          <div class="sug-head"><span class="sug-id">UX-06</span><h4>Theme-aware formatting — no broken glyphs on minimal themes <span>· A</span></h4></div>
+          <div class="sug-body">
+            <p>Plan/status use heavy emoji (<code class="inline">📋 🔍 ⚙️ ✏️</code>) — may render as tofu on some terminals / CI logs.</p>
+            <dl class="kv"><dt>Proposal</dt><dd>Fallback to ASCII when <code class="inline">process.env.PI_NO_EMOJI</code> or theme lacks glyph: <code class="inline">[read] s1 — …</code>. Already partially done via <code class="inline">formatStatus</code> icons — extend to plan.</dd>
+            <dt>Files</dt><dd><code class="inline">src/harness/pi-planner.ts: ACTION_ICON</code></dd>
+            <dt>Effort</dt><dd>XS · 0.25 day</dd>
+            </dl>
+            <div class="chips"><span class="chip">5-Step: A</span><span class="chip">Accessible</span></div>
+          </div>
+          <div class="sug-foot"><span class="pill">A11y</span></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ROADMAP -->
+    <section id="roadmap">
+      <div class="sec-head"><h3>3 · Implementation Plan — phased by priority & dependency</h3><div class="line"></div><span class="badge">Rule: deliver P1 before P4; delete before automate</span></div>
+
+      <div class="card" style="margin-bottom:14px">
+        <h4 style="margin:0 0 8px; font-size:13px">How to use this plan</h4>
+        <p style="margin:0; font-size:12.5px; color:var(--muted)"><b style="color:var(--text)">Order is priority + dependency, not file size.</b> Each phase ends with a <em>gate test</em>: run <code class="inline">npm test -- --run</code> and a manual smoke with <code class="inline">pi -e ./src/index.ts</code>. No phase adds automation for ceremony deleted in earlier phase (anti-pattern guard). Total estimate: <b style="color:var(--text)">~7–9 days solo</b>, shippable incrementally after Phase 1.</p>
+        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
+          <span class="chip ok">Phase 1 → shippable cut of token cost</span>
+          <span class="chip warn">Phase 2 → productivity unlock</span>
+          <span class="chip cost">Phase 3 → polish + telemetry</span>
+        </div>
+      </div>
+
+      <div class="timeline">
+        <div class="phase" style="--c:var(--danger)">
+          <h4>Phase 0 · Guardrails (0.5 day) — before any feature</h4>
+          <p>So suggestions don't regress purity.</p>
+          <ul class="checklist">
+            <li>Add <code class="inline">suggestion.html</code> to <code class="inline">.gitignore</code> (this file) — verify <code class="inline">git check-ignore suggestion.html</code>.</li>
+            <li>Add regression test: trivial prompt must NOT call calibration (capture <code class="inline">before_agent_start</code> injection count).</li>
+            <li>Snapshot current token cost baseline: log <code class="inline">instructionChars</code> for 5 representative prompts.</li>
+          </ul>
+          <div style="margin-top:8px; font-size:11px; color:var(--dim)">Deliverable: baseline metrics · <code class="inline">src/harness/__benchmarks__/cost.baseline.json</code></div>
+        </div>
+
+        <div class="phase" style="--c:var(--accent)">
+          <h4>Phase 1 · Agent + Cost cuts — delete waste (2 days) · AF-01, CE-01, CE-04, CE-02</h4>
+          <p>Highest leverage: fewer LLM turns, smaller prompts, fewer spawns.</p>
+          <ul class="checklist">
+            <li><b>AF-01</b> — implement <code class="inline">src/harness/trivial.ts:isTrivialPrompt</code> + wire in <code class="inline">src/index.ts:before_agent_start</code>; ephemeral low policy; tests for <code class="inline">hi / read + write</code> edges.</li>
+            <li><b>CE-01</b> — <code class="inline">compressState()</code> in <code class="inline">src/jev-client.ts</code>; unit test: 4k trace → ≤1.2k.</li>
+            <li><b>CE-04</b> — tiered <code class="inline">buildJevInstruction(short)</code>; pick short when state &lt;800 and trivial history.</li>
+            <li><b>CE-02</b> — coalesce git status to single <code class="inline">git status --porcelain --branch</code>; update <code class="inline">src/harness/pi-git.test.ts</code> mocks.</li>
+          </ul>
+          <div style="margin-top:8px; font-size:11px; color:var(--dim)">Gate test: trivial prompts = 0 calibrate; large prompt instruction ≤1.2k; git status = 1 exec. Token budget <b>-40%</b> vs baseline.</div>
+        </div>
+
+        <div class="phase" style="--c:var(--accent2)">
+          <h4>Phase 2 · Agent fidelity — simplify what remains (2.5 days) · AF-03, AF-05, AF-06, AF-08, PR-02, PR-05</h4>
+          <p>Make gate & plan match how productive agents actually work.</p>
+          <ul class="checklist">
+            <li><b>AF-03</b> — extend plan action enum + <code class="inline">toolFamily()</code> in <code class="inline">src/harness/pi-planner.ts</code> & <code class="inline">gate.ts</code>.</li>
+            <li><b>AF-05</b> — split git wrappers (1 impl, N tool registrations) or per-action validation.</li>
+            <li><b>AF-06 + AF-08</b> — guarantee <code class="inline">details:{nextAction,code,hint,retryable}</code> + typed blocks; update command handlers.</li>
+            <li><b>PR-02</b> — switch cache key to <code class="inline">sha256(normalize(state))</code> in <code class="inline">src/harness/cache.ts</code>.</li>
+            <li><b>PR-05</b> — enforce <code class="inline">dependsOn</code> in <code class="inline">evaluateGate</code> (warn, not block).</li>
+          </ul>
+          <div style="margin-top:8px; font-size:11px; color:var(--dim)">Gate test: plan with <code class="inline">smart_bundle</code> maps to <code class="inline">edit</code> tool; cache key stable across whitespace; dependsOn warns.</div>
+        </div>
+
+        <div class="phase" style="--c:var(--accent3)">
+          <h4>Phase 3 · Accelerate — 1-turn chain + cursor (2 days) · AF-02, AF-04, PR-01, PR-04, PR-03</h4>
+          <p>Only after waste is deleted: make the remaining chain faster and stateful.</p>
+          <ul class="checklist">
+            <li><b>AF-02</b> — optional <code class="inline">plan</code> field in <code class="inline">jevCalibrateSchema</code>; harness accepts merged plan; update instruction wording.</li>
+            <li><b>AF-04</b> — <code class="inline">PlanDecision.cursor/done</code> + <code class="inline">/jev:next</code> + cursor advance in <code class="inline">tool_call</code>.</li>
+            <li><b>PR-01 + PR-04</b> — persistent cache file + <code class="inline">/jev:resume</code>; persist cursor.</li>
+            <li><b>PR-03</b> — nudge <code class="inline">smart_bundle</code> in plan instruction.</li>
+          </ul>
+          <div style="margin-top:8px; font-size:11px; color:var(--dim)">Gate test: complex prompt can finish calibrate+plan in 1 LLM turn; <code class="inline">/jev:next</code> shows s2/5; resume after restart.</div>
+        </div>
+
+        <div class="phase" style="--c:var(--warn)">
+          <h4>Phase 4 · Polish + telemetry — automate last, delete noise (1.5 days) · PR-06, CE-03, CE-05, CE-06, UX-01→UX-06</h4>
+          <p>Automation only for what survived Q→D→S→A. UX that makes the harness loveable.</p>
+          <ul class="checklist">
+            <li><b>PR-06</b> — auto-commit only when plan done or high complexity; add <code class="inline">--squash</code>.</li>
+            <li><b>CE-03</b> — <code class="inline">/jev:config</code> live thresholds + persist.</li>
+            <li><b>CE-05 + CE-06</b> — appendEntry telemetry + widget debounce.</li>
+            <li><b>UX-01→03</b> — card status, contextual confirm, actionable widget (one PR).</li>
+            <li><b>UX-04→06</b> — safe clear, <code class="inline">/jev:help</code>, emoji fallback.</li>
+          </ul>
+          <div style="margin-top:8px; font-size:11px; color:var(--dim)">Gate test: <code class="inline">/jev:status</code> card fits in 12 lines; <code class="inline">/jev:config risk 0.8</code> without restart; <code class="inline">/jev:cost</code> shows hit rate.</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <h4 style="margin:0 0 8px; font-size:13px">Suggested Git history (one commit per phase — audit-friendly)</h4>
+        <pre>feat(jev): phase0 baseline + trivial-prompt guard (AF-01)
+refactor(jev): compress state & tiered instruction, coalesce git exec (CE-01,02,04)
+feat(jev): smart_bundle-aware plan + typed git wrappers + hash cache (AF-03,05 PR-02)
+feat(jev): merged calibrate+plan + cursor /jev:next + persistent resume (AF-02,04 PR-01,04)
+feat(jev): live config + telemetry + card status + actionable widget (CE-03,05 UX-01-03)
+fix(jev): debounce widget, safe clear, help, emoji fallback (CE-06 UX-04-06)</pre>
+        <p style="margin:8px 0 0; font-size:11.5px; color:var(--dim)">Each commit should include <code class="inline">vitest run</code> green + updated <code class="inline">CHANGELOG.md</code> + <code class="inline">appendEntry</code> proof in <code class="inline">.pi/jev-*.log</code>.</p>
+      </div>
+    </section>
+
+    <!-- METRICS -->
+    <section id="metrics">
+      <div class="sec-head"><h3>4 · Before / After — cost & productivity model</h3><div class="line"></div><span class="badge">Token math</span></div>
+      <div class="card">
+        <table>
+          <thead><tr><th>Scenario</th><th>Before</th><th>After</th><th>Delta</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Trivial prompt</strong> <code class="inline">read README.md</code></td><td>1 calibrate ~450 tok, 420ms</td><td>0 LLM calls, 0 tok, 1ms (bypass)</td><td style="color:var(--ok)"><b>-100%</b></td></tr>
+            <tr><td><strong>Large prompt</strong> (4k state)</td><td>instruction ~400 tok + state 4k = 4.4k in</td><td>compressed 1.2k + short tier 80 tok = ~1.3k</td><td style="color:var(--ok)"><b>-60% input</b></td></tr>
+            <tr><td><strong>Complex task</strong> (needs plan)</td><td>2 LLM turns: calibrate + plan ~800 tok, ~2× latency</td><td>1 merged turn ~550 tok, 1× latency</td><td style="color:var(--ok)"><b>-31% tok, -45% latency</b></td></tr>
+            <tr><td><strong>Average 10-turn session</strong> (40% trivial, 30% complex)</td><td>~6.2k tok harness overhead</td><td>~3.5k tok</td><td style="color:var(--ok)"><b>-44%</b></td></tr>
+            <tr><td><strong>Git status</strong></td><td>2–3 exec spawns</td><td>1 exec</td><td style="color:var(--ok)"><b>-66% spawns</b></td></tr>
+            <tr><td><strong>Cache hit (next day)</strong></td><td>miss → recalibrate 450 tok</td><td>hit → 0 tok (persistent)</td><td style="color:var(--ok)"><b>-100% on hit</b></td></tr>
+            <tr><td><strong>Productivity</strong> (batch recommendation)</td><td>agent serial read→edit = 2 turns</td><td>smart_bundle = 1 turn</td><td style="color:var(--ok)"><b>-50% turns</b></td></tr>
+          </tbody>
+        </table>
+        <p style="margin:10px 0 0; font-size:11.5px; color:var(--dim)">Model assumes GPT-4o-class pricing; tok = input+output for harness instructions only (not user task tokens). Latency measured from <code class="inline">t0 → policy</code> + <code class="inline">tPlan0 → plan</code>.</p>
+      </div>
+      <div class="grid2" style="margin-top:14px">
+        <div class="card">
+          <h4 style="margin:0 0 6px; font-size:13px">KPIs to track (add to <code class="inline">/jev:cost</code>)</h4>
+          <ul style="margin:0 0 0 16px; font-size:12.5px; color:var(--muted)">
+            <li><code class="inline">calibrateHitRate %</code> (target &gt;35%)</li>
+            <li><code class="inline">avgInstructionChars</code> (target &lt;1.3k)</li>
+            <li><code class="inline">mergedPlanRate %</code> (target &gt;50% of complex tasks)</li>
+            <li><code class="inline">avgLLMTurnsPerTask</code> (target -40%)</li>
+            <li><code class="inline">gitExecPerStatus</code> (target 1)</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4 style="margin:0 0 6px; font-size:13px">What NOT to build (deleted — guard)</h4>
+          <ul style="margin:0 0 0 16px; font-size:12.5px; color:var(--muted)">
+            <li>❌ External Jev service / fetch / PI_API_BASE — purity is the moat.</li>
+            <li>❌ Regex <code class="inline">via:rules</code> fallback — no silent degradation.</li>
+            <li>❌ LLM-based threshold tuning — keep thresholds human-tunable, not LLM-tuned.</li>
+            <li>❌ Auto-plan for every <code class="inline">complexity=medium</code> — only when <code class="inline">needs_plan≥0.5 && level≠low</code>.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="risks">
+      <div class="sec-head"><h3>5 · Risks & guardrails</h3><div class="line"></div><span class="badge">Ship safely</span></div>
+      <div class="grid2">
+        <div class="card">
+          <h4 style="margin:0 0 6px; font-size:13px; color:var(--warn)">Risk: bypass misclassifies complex as trivial</h4>
+          <p style="margin:0; font-size:12.5px; color:var(--muted)">Mitigation: bypass only for low-signal prompts; gate still blocks if agent attempts <code class="inline">write/edit/bash</code> without calibration — self-corrects by demanding <code class="inline">jev_calibrate</code>. Log <code class="inline">trivialBypass:true</code> in appendEntry for audit.</p>
+        </div>
+        <div class="card">
+          <h4 style="margin:0 0 6px; font-size:13px; color:var(--warn)">Risk: merged calibrate+plan lowers plan quality</h4>
+          <p style="margin:0; font-size:12.5px; color:var(--muted)">Mitigation: keep 2-turn path as fallback; if merged plan fails gate (bad deps, missing steps), harness re-injects <code class="inline">buildJevPlanInstruction</code>. Measure <code class="inline">mergedPlanRejectRate</code>.</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h4 style="margin:0 0 6px; font-size:13px">DoD (Definition of Done) per suggestion</h4>
+        <ul style="margin:0 0 0 16px; font-size:12.5px; color:var(--muted)">
+          <li>Unit test in <code class="inline">src/harness/*.test.ts</code> + <code class="inline">npm test -- --run</code> green.</li>
+          <li><code class="inline">npm run typecheck</code> + <code class="inline">npm run lint</code> green (no <code class="inline">any</code> creep).</li>
+          <li>Manual smoke: <code class="inline">pi -e ./src/index.ts</code> — trivial bypass, merged turn, <code class="inline">/jev:status</code> card, <code class="inline">/jev:next</code> cursor verified.</li>
+          <li><code class="inline">CHANGELOG.md</code> entry + <code class="inline">appendEntry("jev", …)</code> proof line in test Run.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <div class="card" style="background:linear-gradient(135deg, rgba(91,141,239,.12), rgba(124,92,255,.08)), var(--card); text-align:center">
+        <div style="font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); font-weight:700">Ready to implement</div>
+        <h3 style="margin:6px 0 8px">Start Phase 0 → Phase 1, ship token savings by end of week 1.</h3>
+        <p style="margin:0; font-size:12.5px; color:var(--muted); max-width:64ch; margin-left:auto; margin-right:auto">This report is <b style="color:var(--text)">not git-tracked</b> (<code class="inline">.gitignore → suggestion.html</code>). Delete after implementation. Questions? Re-run audit: <code class="inline">git diff --stat</code> + <code class="inline">npm test</code> + <code class="inline">/jev:status</code>.</p>
+        <div style="margin-top:12px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap">
+          <button class="btn primary" onclick="document.getElementById('roadmap').scrollIntoView({behavior:'smooth'})">View roadmap</button>
+          <button class="btn" onclick="window.print()">Export PDF</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <div>pi-jev-harness · Enhancement Suggestions & Implementation Plan · 5-Step Algorithm · Never optimize what shouldn't exist · Generated 2026-09-18</div>
+    <div style="margin-top:4px; color:var(--dim)">Files audited: <code class="inline">src/index.ts (417 LOC)</code> · <code class="inline">src/harness/pi-classifier|gate|cache|pi-planner|pi-git</code> · <code class="inline">src/types.ts</code> · <code class="inline">docs/DESIGN.md</code> · 33 tests</div>
+  </footer>
+
+<script>
+// Simple filter for P1
+document.querySelectorAll('[data-filter="p1"] .fbtn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('[data-filter="p1"] .fbtn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const f=btn.dataset.f;
+    document.querySelectorAll('#sugs-p1 .sug').forEach(card=>{
+      if(f==='all'){ card.style.display=''; return; }
+      const tags=card.dataset.tags||'';
+      card.style.display = tags.includes(f) ? '' : 'none';
+    });
+  });
+});
+</script>
+</body>
+</html>

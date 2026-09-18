@@ -158,7 +158,7 @@ const ACTION_ASCII: Record<string, string> = {
   cext_batch: "[cext]",
 };
 function useEmoji(): boolean {
-  if (process.env.PI_NO_EMOJI === "1" || process.env.NO_EMOJI === "1") return false;
+  if (process.env.PI_NO_EMOJI === "1" || process.env.NO_EMOJI === "1" || process.env.NO_COLOR === "1") return false;
   return true;
 }
 function riskBadge(risk: number): string {
@@ -185,7 +185,8 @@ function formatSteps(steps: JevPlanStep[], withDeps: boolean): string {
 
 export function formatPlanDisplay(p: JevPlanParams, decision: PlanDecision): string {
   const header = `📋 Jev Plan  ·  via pi-model  ·  ${p.steps.length} steps  ·  max risk ${decision.maxRisk.toFixed(2)} ${riskBadge(decision.maxRisk)}  ·  confidence ${(p.confidence * 100).toFixed(0)}%`;
-  const divider = "─".repeat(52);
+  const cols = (process.stdout as unknown as { columns?: number })?.columns ?? 80;
+  const divider = "─".repeat(Math.min(52, Math.max(24, cols - 28)));
   const lines = formatSteps(p.steps, true);
   const reasoning = p.reasoning ? `\n💡 ${p.reasoning}` : "";
   return `${header}\n${divider}\n${lines}${reasoning}`;
@@ -193,7 +194,8 @@ export function formatPlanDisplay(p: JevPlanParams, decision: PlanDecision): str
 
 export function formatPlanNotify(decision: PlanDecision): string {
   const header = `📋 Jev Plan  ·  ${decision.steps.length} steps  ·  max risk ${decision.maxRisk.toFixed(2)} ${riskBadge(decision.maxRisk)}`;
-  const divider = "─".repeat(44);
+  const cols = (process.stdout as unknown as { columns?: number })?.columns ?? 80;
+  const divider = "─".repeat(Math.min(44, Math.max(20, cols - 32)));
   const lines = formatSteps(decision.steps, false);
   const reasoning = decision.reasoning ? `\n💡 ${decision.reasoning}` : "";
   return `${header}\n${divider}\n${lines}${reasoning}`;

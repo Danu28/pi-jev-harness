@@ -8,4 +8,4 @@ artifacts/
 .env
 .env.*
 sessions/
-suggestion.html
+/suggestion.html
